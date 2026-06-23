@@ -20,27 +20,35 @@
     "url": {
       "type": "string",
       "description": "URL Proxmox VE",
+      "description_en": "Proxmox VE URL",
       "placeholder": "https://192.168.10.10:8006",
       "hint": "L'adresse de votre serveur Proxmox avec le port (8006 par défaut). Utilisez https://.",
+      "hint_en": "The address of your Proxmox server with port (8006 by default). Use https://.",
       "required": true
     },
     "token_id": {
       "type": "string",
       "description": "API Token ID",
+      "description_en": "API Token ID",
       "placeholder": "tc-audit@pam!tc-token",
       "hint": "L'identifiant complet du token au format utilisateur@realm!nom-du-token. Créez-le dans Datacenter > Permissions > API Tokens.",
+      "hint_en": "The full token identifier in the form user@realm!token-name. Create it in Datacenter > Permissions > API Tokens.",
       "required": true
     },
     "token_secret": {
       "type": "password",
       "description": "API Token Secret",
+      "description_en": "API Token Secret",
       "hint": "Le secret du token, affiché une seule fois à la création. Si vous l'avez perdu, supprimez le token et recréez-en un.",
+      "hint_en": "The token secret, shown only once at creation. If you have lost it, delete the token and create a new one.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Proxmox utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez configuré Let's Encrypt ou une PKI interne.",
+      "hint_en": "Proxmox uses a self-signed certificate by default. Leave enabled unless you have configured Let's Encrypt or an internal PKI.",
       "default": true
     }
   },

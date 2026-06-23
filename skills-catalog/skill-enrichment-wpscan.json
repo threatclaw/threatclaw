@@ -20,29 +20,37 @@
         "api_key": {
             "type": "password",
             "description": "Token API WPScan",
+            "description_en": "WPScan API token",
             "required": true,
             "hint": "Obligatoire. Inscrivez-vous sur wpscan.com pour obtenir un token gratuit (25 req/jour).",
+            "hint_en": "Required. Sign up at wpscan.com to get a free token (25 req/day).",
             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         },
         "wordpress_url": {
             "type": "string",
             "description": "URL du site WordPress a scanner",
+            "description_en": "WordPress site URL to scan",
             "required": false,
             "hint": "URL complete du site WordPress cible (ex: https://monsite.fr). Laissez vide pour utiliser uniquement le lookup de vulnerabilites.",
+            "hint_en": "Full URL of the target WordPress site (e.g. https://mysite.com). Leave empty to use only the vulnerability lookup.",
             "placeholder": "https://monsite.example.com"
         },
         "enumerate": {
             "type": "string",
             "description": "Elements a enumerer lors du scan",
+            "description_en": "Elements to enumerate during the scan",
             "required": false,
             "hint": "Types d'elements a enumerer : p (plugins), t (themes), u (utilisateurs), vp (plugins vulnerables), vt (themes vulnerables). Combinables : vp,vt",
+            "hint_en": "Types of elements to enumerate: p (plugins), t (themes), u (users), vp (vulnerable plugins), vt (vulnerable themes). Combinable: vp,vt",
             "placeholder": "vp,vt"
         },
         "scan_type": {
             "type": "string",
             "description": "Type de scan a effectuer",
+            "description_en": "Type of scan to perform",
             "required": false,
             "hint": "Mode de scan : 'passive' (lookup API uniquement) ou 'active' (scan du site WordPress). Le mode passif ne contacte pas le site cible.",
+            "hint_en": "Scan mode: 'passive' (API lookup only) or 'active' (scan of the WordPress site). Passive mode does not contact the target site.",
             "placeholder": "passive"
         }
     },

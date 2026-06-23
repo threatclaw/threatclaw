@@ -18,8 +18,10 @@
         "api_key": {
             "type": "password",
             "description": "Cle API GreyNoise (optionnelle — Community gratuite)",
+            "description_en": "GreyNoise API key (optional — Community is free)",
             "required": false,
             "hint": "Optionnel. Creez un compte gratuit sur viz.greynoise.io pour obtenir une cle Community.",
+            "hint_en": "Optional. Create a free account at viz.greynoise.io to get a Community key.",
             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
     }

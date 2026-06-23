@@ -21,7 +21,9 @@
     "target": {
       "type": "string",
       "description": "URLs ou sous-reseaux a prober (une par ligne ou separes par virgule)",
+      "description_en": "URLs or subnets to probe (one per line or comma-separated)",
       "hint": "Liste d'URLs, sous-domaines ou adresses IP a tester. Plusieurs cibles peuvent etre separees par des virgules. Peut aussi recevoir la sortie de Subfinder.",
+      "hint_en": "List of URLs, subdomains or IP addresses to test. Several targets can be separated by commas. Can also take Subfinder's output.",
       "placeholder": "app.monentreprise.fr,api.monentreprise.fr,192.168.1.0/24",
       "required": true
     }

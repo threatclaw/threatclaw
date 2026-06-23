@@ -22,7 +22,9 @@
     "target": {
       "type": "string",
       "description": "Chemin du repertoire IaC a analyser",
+      "description_en": "Path to the IaC directory to analyze",
       "hint": "Chemin absolu vers le repertoire contenant vos fichiers IaC (Terraform, Dockerfiles, manifests Kubernetes, etc.).",
+      "hint_en": "Absolute path to the directory containing your IaC files (Terraform, Dockerfiles, Kubernetes manifests, etc.).",
       "placeholder": "/opt/infra/terraform",
       "required": true
     }

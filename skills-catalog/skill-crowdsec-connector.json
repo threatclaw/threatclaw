@@ -18,14 +18,18 @@
     "CROWDSEC_URL": {
       "type": "string",
       "description": "URL de la LAPI CrowdSec",
+      "description_en": "CrowdSec LAPI URL",
       "placeholder": "http://192.168.1.10:8080",
       "hint": "L'adresse de votre CrowdSec LAPI. Par défaut elle écoute sur le port 8080. Si CrowdSec est sur la même machine que ThreatClaw, utilisez http://localhost:8080.",
+      "hint_en": "The address of your CrowdSec LAPI. By default it listens on port 8080. If CrowdSec is on the same machine as ThreatClaw, use http://localhost:8080.",
       "required": true
     },
     "CROWDSEC_BOUNCER_KEY": {
       "type": "password",
       "description": "Clé API du bouncer",
+      "description_en": "Bouncer API key",
       "hint": "Clé obtenue via la commande : cscli bouncers add threatclaw. Cette clé permet à ThreatClaw de lire les décisions de ban sans pouvoir les modifier.",
+      "hint_en": "Key obtained via the command: cscli bouncers add threatclaw. This key lets ThreatClaw read ban decisions without being able to modify them.",
       "required": true
     }
   },

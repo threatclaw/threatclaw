@@ -22,14 +22,18 @@
     "target_host": {
       "type": "string",
       "description": "Serveur cible (SSH) ou 'local' pour le serveur ThreatClaw",
+      "description_en": "Target server (SSH) or 'local' for the ThreatClaw server",
       "hint": "Adresse du serveur a auditer. 'local' pour auditer le serveur ThreatClaw lui-meme. Pour un serveur distant, indiquez l'adresse SSH (ex: user@serveur.local).",
+      "hint_en": "Address of the server to audit. 'local' to audit the ThreatClaw server itself. For a remote server, enter the SSH address (e.g. user@server.local).",
       "placeholder": "local",
       "default": "local"
     },
     "profile": {
       "type": "select",
       "description": "Profil d'audit",
+      "description_en": "Audit profile",
       "hint": "Profil adapte au type de machine. 'server' pour les serveurs de production, 'workstation' pour les postes de travail, 'default' pour un audit generique.",
+      "hint_en": "Profile suited to the machine type. 'server' for production servers, 'workstation' for desktops, 'default' for a generic audit.",
       "options": [
         "default",
         "server",

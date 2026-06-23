@@ -21,40 +21,52 @@
     "url": {
       "type": "string",
       "description": "URL Keycloak",
+      "description_en": "Keycloak URL",
       "placeholder": "https://sso.monentreprise.fr",
       "hint": "URL racine de Keycloak (sans /admin ni /realms). Si Keycloak est derrière un reverse-proxy sur 443, utilisez l'URL publique.",
+      "hint_en": "Root URL of Keycloak (without /admin or /realms). If Keycloak is behind a reverse proxy on 443, use the public URL.",
       "required": true
     },
     "realm": {
       "type": "string",
       "description": "Realm à surveiller",
+      "description_en": "Realm to monitor",
       "placeholder": "employees",
       "hint": "Le realm applicatif (PAS « master » en production). Créez une instance de cette skill par realm à surveiller.",
+      "hint_en": "The application realm (NOT \"master\" in production). Create one instance of this skill per realm to monitor.",
       "required": true
     },
     "client_id": {
       "type": "string",
       "description": "Client ID du service account",
+      "description_en": "Service account Client ID",
       "placeholder": "threatclaw-reader",
       "hint": "Client OIDC créé dans le realm ciblé avec Service Accounts activé et les rôles view-events, view-users, query-users, query-events.",
+      "hint_en": "OIDC client created in the target realm with Service Accounts enabled and the roles view-events, view-users, query-users, query-events.",
       "required": true
     },
     "client_secret": {
       "type": "password",
       "description": "Client Secret",
+      "description_en": "Client Secret",
       "hint": "Secret affiché dans l'onglet Credentials du client. Stocké chiffré par ThreatClaw.",
+      "hint_en": "Secret shown in the client's Credentials tab. Stored encrypted by ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Activer si Keycloak utilise un certificat auto-signé. Désactivez en production avec Let's Encrypt.",
+      "hint_en": "Enable if Keycloak uses a self-signed certificate. Disable in production with Let's Encrypt.",
       "default": true
     },
     "max_events": {
       "type": "number",
       "description": "Nombre max d'events par cycle (login + admin)",
+      "description_en": "Max events per cycle (login + admin)",
       "hint": "Par défaut 200. Augmentez si gros trafic d'auth (1000-5000).",
+      "hint_en": "Default 200. Increase for heavy auth traffic (1000-5000).",
       "default": 200,
       "required": false
     }

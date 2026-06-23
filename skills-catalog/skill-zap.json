@@ -22,7 +22,9 @@
     "scan_type": {
       "type": "select",
       "description": "Type de scan",
+      "description_en": "Scan type",
       "hint": "Baseline : rapide et non intrusif (1-2 min), ideal pour un premier apercu. Full Scan : crawl complet et tests actifs (30+ min), plus exhaustif. API Scan : specifique aux APIs REST avec schema OpenAPI.",
+      "hint_en": "Baseline: fast and non-intrusive (1-2 min), ideal for a first look. Full Scan: full crawl and active tests (30+ min), more exhaustive. API Scan: specific to REST APIs with an OpenAPI schema.",
       "options": [
         "Baseline (rapide, 1-2 min)",
         "Full Scan (complet, 30+ min)",
@@ -33,7 +35,9 @@
     "target": {
       "type": "string",
       "description": "URL de l'application web a scanner (ex: https://app.monentreprise.fr)",
+      "description_en": "URL of the web application to scan (e.g. https://app.mycompany.com)",
       "hint": "URL complete de l'application web a tester. Doit etre accessible depuis le serveur ThreatClaw. Attention : le Full Scan genere du trafic important, testez d'abord en Baseline.",
+      "hint_en": "Full URL of the web application to test. Must be reachable from the ThreatClaw server. Note: the Full Scan generates significant traffic, test in Baseline first.",
       "placeholder": "https://app.monentreprise.fr",
       "required": true
     }

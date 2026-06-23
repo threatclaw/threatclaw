@@ -21,34 +21,44 @@
     "url": {
       "type": "string",
       "description": "URL TheHive 5",
+      "description_en": "TheHive 5 URL",
       "placeholder": "https://thehive.monentreprise.local:9000",
       "hint": "Adresse complète de TheHive 5. Port 9000 par défaut. Si exposé via reverse-proxy TLS, utilisez l'URL publique.",
+      "hint_en": "Full address of TheHive 5. Port 9000 by default. If exposed via a TLS reverse proxy, use the public URL.",
       "required": true
     },
     "api_key": {
       "type": "password",
       "description": "Clé API TheHive",
+      "description_en": "TheHive API key",
       "placeholder": "a1B2c3D4e5F6g7H8i9J0k...",
       "hint": "À récupérer dans le menu utilisateur > Settings > API Key > Renew. Le user doit avoir le profile read-only minimum.",
+      "hint_en": "Get it in the user menu > Settings > API Key > Renew. The user must have at least the read-only profile.",
       "required": true
     },
     "org": {
       "type": "string",
       "description": "Organisation (optionnel)",
+      "description_en": "Organisation (optional)",
       "placeholder": "default",
       "hint": "Nom de l'organisation TheHive. Généralement laissé vide — le user tc-reader est lié à une seule org qui est utilisée automatiquement.",
+      "hint_en": "Name of the TheHive organisation. Usually left empty — the tc-reader user is tied to a single org which is used automatically.",
       "required": false
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Activer si TheHive utilise un certificat auto-signé.",
+      "hint_en": "Enable if TheHive uses a self-signed certificate.",
       "default": true
     },
     "max_alerts": {
       "type": "number",
       "description": "Nombre max d'alertes par cycle",
+      "description_en": "Max alerts per cycle",
       "hint": "Par défaut 100. Augmentez si vous avez beaucoup d'alertes/jour.",
+      "hint_en": "Default 100. Increase if you have many alerts/day.",
       "default": 100,
       "required": false
     }

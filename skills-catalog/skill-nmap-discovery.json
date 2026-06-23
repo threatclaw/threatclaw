@@ -22,7 +22,9 @@
     "scan_schedule": {
       "type": "select",
       "description": "Frequence de scan",
+      "description_en": "Scan frequency",
       "hint": "Choisissez la frequence de scan reseau. Un scan quotidien a 2h du matin permet de detecter les changements sans impacter la production.",
+      "hint_en": "Choose the network scan frequency. A daily scan at 2 a.m. detects changes without impacting production.",
       "options": [
         "Manuel uniquement",
         "Toutes les heures",
@@ -36,14 +38,18 @@
     "top_ports": {
       "type": "number",
       "description": "Nombre de ports a scanner",
+      "description_en": "Number of ports to scan",
       "hint": "Nombre de ports les plus courants a tester. 1000 couvre la majorite des services standards. Augmentez a 5000 ou 65535 pour un scan exhaustif (plus lent).",
+      "hint_en": "Number of the most common ports to test. 1000 covers most standard services. Increase to 5000 or 65535 for an exhaustive scan (slower).",
       "placeholder": "1000",
       "default": 1000
     },
     "targets": {
       "type": "string",
       "description": "Cibles à scanner (IP, CIDR ou plage)",
+      "description_en": "Targets to scan (IP, CIDR or range)",
       "hint": "Indiquez les plages IP de votre reseau interne a decouvrir. Plusieurs sous-reseaux peuvent etre separes par des virgules. Utilisez la notation CIDR.",
+      "hint_en": "Enter the IP ranges of your internal network to discover. Several subnets can be separated by commas. Use CIDR notation.",
       "placeholder": "192.168.1.0/24",
       "required": true
     }

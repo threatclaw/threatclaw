@@ -21,27 +21,35 @@
     "url": {
       "type": "string",
       "description": "URL Authentik",
+      "description_en": "Authentik URL",
       "placeholder": "https://auth.monentreprise.fr",
       "hint": "Adresse complète de votre Authentik. Si exposé via reverse proxy (port 443), indiquez l'URL publique. Sinon port 9443 par défaut (https://authentik.local:9443).",
+      "hint_en": "Full address of your Authentik. If exposed via a reverse proxy (port 443), enter the public URL. Otherwise port 9443 by default (https://authentik.local:9443).",
       "required": true
     },
     "token": {
       "type": "password",
       "description": "API Token Authentik",
+      "description_en": "Authentik API Token",
       "placeholder": "ak-xxxxxxxxxxxxxxxxxxxxxxxx",
       "hint": "À créer dans Directory > Tokens & App passwords > Create. Intent « API Token ». Stocké chiffré par ThreatClaw.",
+      "hint_en": "Create it in Directory > Tokens & App passwords > Create. Intent \"API Token\". Stored encrypted by ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Laissez activé si Authentik utilise un certificat auto-signé. Désactivez en production avec Let's Encrypt ou PKI reconnue.",
+      "hint_en": "Leave enabled if Authentik uses a self-signed certificate. Disable in production with Let's Encrypt or a recognized PKI.",
       "default": true
     },
     "max_events": {
       "type": "number",
       "description": "Nombre max d'events à analyser par cycle",
+      "description_en": "Max events to analyze per cycle",
       "hint": "Par défaut 200. Augmentez si vous avez un gros trafic d'authentification (ex: 1000).",
+      "hint_en": "Default 200. Increase if you have heavy authentication traffic (e.g. 1000).",
       "default": 200,
       "required": false
     }

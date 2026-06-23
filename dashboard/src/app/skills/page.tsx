@@ -1021,7 +1021,7 @@ function ConfigModal({
                     fontSize: "11px", color: "var(--tc-text-sec)",
                     display: "flex", alignItems: "center", gap: "4px", marginBottom: "4px",
                   }}>
-                    {field.description || key}
+                    {enField(field, "description", locale) || key}
                     {field.required && <span style={{ color: "var(--tc-red)" }}> *</span>}
                     {field.hint && (
                       <span
@@ -1042,7 +1042,7 @@ function ConfigModal({
                       borderRadius: "var(--tc-radius-sm)", padding: "6px 10px",
                       marginBottom: "4px", lineHeight: "1.5",
                     }}>
-                      {field.hint}
+                      {enField(field, "hint", locale)}
                     </div>
                   )}
                   {field.options ? (
@@ -1381,12 +1381,12 @@ function HitlActionsPanel({
                 </code>
                 {a.label && (
                   <span style={{ marginLeft: "8px", fontWeight: 600, color: "var(--tc-text)" }}>
-                    {a.label}
+                    {enField(a as Record<string, unknown>, "label", locale)}
                   </span>
                 )}
                 {a.description && (
                   <div style={{ marginTop: "2px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
-                    {a.description}
+                    {enField(a as Record<string, unknown>, "description", locale)}
                   </div>
                 )}
               </div>
@@ -1417,11 +1417,11 @@ function HitlActionsPanel({
                 return (
                   <div key={k} style={{ marginBottom: "8px" }}>
                     <label style={{ fontSize: "10px", color: "var(--tc-text-sec)", display: "block", marginBottom: "3px" }}>
-                      {field.description || k}
+                      {enField(field, "description", locale) || k}
                     </label>
                     {field.hint && (
                       <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginBottom: "3px", lineHeight: 1.4 }}>
-                        {field.hint}
+                        {enField(field, "hint", locale)}
                       </div>
                     )}
                     <input

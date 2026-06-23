@@ -18,21 +18,27 @@
     "uptimerobot_api_key": {
       "type": "password",
       "description": "Clé API UptimeRobot",
+      "description_en": "UptimeRobot API key",
       "hint": "Utilisez une clé API Read-Only (lecture seule). Disponible dans My Settings > API Settings. Ne partagez jamais la clé Main API Key.",
+      "hint_en": "Use a Read-Only API key. Available in My Settings > API Settings. Never share the Main API Key.",
       "required": true
     },
     "latency_threshold_ms": {
       "type": "string",
       "description": "Seuil d'alerte de latence (ms)",
+      "description_en": "Latency alert threshold (ms)",
       "placeholder": "2000",
       "hint": "Seuil en millisecondes au-delà duquel ThreatClaw génère un finding de type 'latence élevée'. Par défaut : 2000 ms. Ajustez selon vos SLA.",
+      "hint_en": "Threshold in milliseconds above which ThreatClaw generates a 'high latency' finding. Default: 2000 ms. Adjust to your SLAs.",
       "required": false
     },
     "cert_warn_days": {
       "type": "string",
       "description": "Alerte certificat SSL (jours avant expiration)",
+      "description_en": "SSL certificate alert (days before expiry)",
       "placeholder": "30",
       "hint": "Nombre de jours avant l'expiration du certificat SSL pour déclencher une alerte. Par défaut : 30 jours. Recommandé : 30 pour Let's Encrypt (renouvellement tous les 90 jours).",
+      "hint_en": "Number of days before SSL certificate expiry to trigger an alert. Default: 30 days. Recommended: 30 for Let's Encrypt (renewal every 90 days).",
       "required": false
     }
   },

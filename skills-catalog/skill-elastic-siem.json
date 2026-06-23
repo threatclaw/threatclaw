@@ -21,46 +21,60 @@
     "url": {
       "type": "string",
       "description": "URL Kibana (pas Elasticsearch)",
+      "description_en": "Kibana URL (not Elasticsearch)",
       "placeholder": "https://kibana.monentreprise.local:5601",
       "hint": "L'URL de KIBANA, pas d'Elasticsearch. Port 5601 par défaut. Si exposé via reverse-proxy TLS sur 443, utilisez l'URL publique.",
+      "hint_en": "The KIBANA URL, not Elasticsearch. Port 5601 by default. If exposed via a TLS reverse proxy on 443, use the public URL.",
       "required": true
     },
     "api_key_id": {
       "type": "string",
       "description": "API Key ID (recommandé)",
+      "description_en": "API Key ID (recommended)",
       "placeholder": "VuaCfGcBCdbkQm-e5aOx",
       "hint": "L'ID de la clé API, généré dans Kibana > Stack Management > API Keys. Si renseigné, username/password sont ignorés.",
+      "hint_en": "The ID of the API key, generated in Kibana > Stack Management > API Keys. If set, username/password are ignored.",
       "required": false
     },
     "api_key_secret": {
       "type": "password",
       "description": "API Key Secret",
+      "description_en": "API Key Secret",
       "hint": "Le secret associé à l'ID, affiché une seule fois à la création. Si perdu, supprimez et recréez la clé.",
+      "hint_en": "The secret associated with the ID, shown only once at creation. If lost, delete and recreate the key.",
       "required": false
     },
     "username": {
       "type": "string",
       "description": "Username (alternative)",
+      "description_en": "Username (alternative)",
       "placeholder": "tc-siem-reader",
       "hint": "Utilisé uniquement si aucune API Key n'est fournie. Compte Kibana dédié avec rôle siem_reader ou équivalent.",
+      "hint_en": "Used only if no API Key is provided. Dedicated Kibana account with the siem_reader role or equivalent.",
       "required": false
     },
     "password": {
       "type": "password",
       "description": "Password (alternative)",
+      "description_en": "Password (alternative)",
       "hint": "Mot de passe du compte Kibana. Non requis si API Key utilisée.",
+      "hint_en": "Kibana account password. Not required if an API Key is used.",
       "required": false
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Activer si Kibana a un certificat auto-signé. Désactivez en production avec PKI reconnue.",
+      "hint_en": "Enable if Kibana has a self-signed certificate. Disable in production with a recognized PKI.",
       "default": true
     },
     "max_alerts": {
       "type": "number",
       "description": "Nombre max d'alertes par cycle",
+      "description_en": "Max alerts per cycle",
       "hint": "Par défaut 100. Augmentez à 500 ou 1000 si vous avez beaucoup de signals/jour.",
+      "hint_en": "Default 100. Increase to 500 or 1000 if you have many signals/day.",
       "default": 100,
       "required": false
     }

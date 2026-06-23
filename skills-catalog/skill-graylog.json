@@ -21,40 +21,52 @@
     "url": {
       "type": "string",
       "description": "URL du serveur Graylog",
+      "description_en": "Graylog server URL",
       "placeholder": "https://graylog.monentreprise.local:9000",
       "hint": "Adresse complète avec le port. 9000/TCP par défaut en HTTP ; 443 si vous avez un reverse proxy TLS.",
+      "hint_en": "Full address with port. 9000/TCP by default over HTTP; 443 if you have a TLS reverse proxy.",
       "required": true
     },
     "token": {
       "type": "password",
       "description": "API Token (recommandé)",
+      "description_en": "API Token (recommended)",
       "placeholder": "1a2b3c4d5e6f...",
       "hint": "À créer dans Graylog > System > Users and Teams > Edit tokens. Si renseigné, username/password sont ignorés.",
+      "hint_en": "Create it in Graylog > System > Users and Teams > Edit tokens. If set, username/password are ignored.",
       "required": false
     },
     "username": {
       "type": "string",
       "description": "Username (alternative au token)",
+      "description_en": "Username (alternative to the token)",
       "placeholder": "tc-reader",
       "hint": "Utilisé uniquement si aucun token n'est fourni. Compte Graylog avec rôle Reader minimum.",
+      "hint_en": "Used only if no token is provided. Graylog account with the Reader role minimum.",
       "required": false
     },
     "password": {
       "type": "password",
       "description": "Password (alternative au token)",
+      "description_en": "Password (alternative to the token)",
       "hint": "Mot de passe du compte Graylog. Non requis si vous utilisez un token.",
+      "hint_en": "Graylog account password. Not required if you use a token.",
       "required": false
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Activer si votre Graylog a un certificat auto-signé ou une PKI interne non reconnue.",
+      "hint_en": "Enable if your Graylog has a self-signed certificate or an unrecognized internal PKI.",
       "default": true
     },
     "max_events": {
       "type": "number",
       "description": "Nombre max d'events à récupérer par cycle",
+      "description_en": "Max events to fetch per cycle",
       "hint": "Par défaut 100. Augmentez à 500 ou 1000 si vous avez beaucoup d'alertes.",
+      "hint_en": "Default 100. Increase to 500 or 1000 if you have many alerts.",
       "default": 100,
       "required": false
     }

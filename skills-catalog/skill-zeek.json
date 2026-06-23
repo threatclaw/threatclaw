@@ -19,8 +19,10 @@
     "connection_mode": {
       "type": "string",
       "description": "Mode de connexion",
+      "description_en": "Connection mode",
       "placeholder": "remote",
       "hint": "\"local\" si Zeek tourne sur ce serveur (self-protection uniquement). \"remote\" si Zeek est sur un autre serveur (firewall, routeur). Le mode distant est recommandé pour surveiller tout le réseau.",
+      "hint_en": "\"local\" if Zeek runs on this server (self-protection only). \"remote\" if Zeek is on another server (firewall, router). Remote mode is recommended to monitor the whole network.",
       "required": true,
       "default": "remote",
       "enum": ["local", "remote"]
@@ -28,14 +30,18 @@
     "zeek_log_dir": {
       "type": "string",
       "description": "Répertoire des logs Zeek (mode local)",
+      "description_en": "Zeek logs directory (local mode)",
       "placeholder": "/opt/zeek/logs/current",
       "hint": "Uniquement en mode local. Le répertoire contenant les logs JSON de Zeek. Assurez-vous que les logs sont au format JSON (policy/tuning/json-logs.zeek).",
+      "hint_en": "Local mode only. The directory containing Zeek's JSON logs. Make sure the logs are in JSON format (policy/tuning/json-logs.zeek).",
       "required": false
     },
     "webhook_token": {
       "type": "password",
       "description": "Token webhook (mode distant)",
+      "description_en": "Webhook token (remote mode)",
       "hint": "En mode distant, ce token sécurise la réception des logs. Il sera généré automatiquement. Configurez ce même token dans Fluent-Bit sur votre serveur Zeek.",
+      "hint_en": "In remote mode, this token secures the reception of the logs. It will be generated automatically. Configure this same token in Fluent-Bit on your Zeek server.",
       "required": false,
       "auto_generate": true
     }

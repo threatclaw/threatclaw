@@ -19,8 +19,10 @@
     "connection_mode": {
       "type": "string",
       "description": "Mode de connexion",
+      "description_en": "Connection mode",
       "placeholder": "remote",
       "hint": "\"local\" si Suricata tourne sur ce serveur (TC lit eve.json). \"remote\" si Suricata est sur un autre serveur (Fluent-Bit pousse les logs vers TC — aucune IP Suricata n'est requise ici, c'est Suricata qui se connecte à TC). Le mode distant est recommandé.",
+      "hint_en": "\"local\" if Suricata runs on this server (TC reads eve.json). \"remote\" if Suricata is on another server (Fluent-Bit pushes the logs to TC — no Suricata IP is required here, it's Suricata that connects to TC). Remote mode is recommended.",
       "required": true,
       "default": "remote",
       "enum": ["local", "remote"]
@@ -28,14 +30,18 @@
     "eve_json_path": {
       "type": "string",
       "description": "Chemin vers eve.json (mode local)",
+      "description_en": "Path to eve.json (local mode)",
       "placeholder": "/var/log/suricata/eve.json",
       "hint": "Uniquement en mode local. Le chemin complet vers le fichier eve.json de Suricata.",
+      "hint_en": "Local mode only. The full path to Suricata's eve.json file.",
       "required": false
     },
     "webhook_token": {
       "type": "password",
       "description": "Token webhook (mode distant)",
+      "description_en": "Webhook token (remote mode)",
       "hint": "Généré automatiquement. À copier dans Fluent-Bit sur votre serveur Suricata. URL complète : POST https://<votre-threatclaw>/api/tc/webhook/ingest/suricata?token=<ce-token>. Régénérable à tout moment (il faudra mettre à jour Fluent-Bit).",
+      "hint_en": "Generated automatically. Copy it into Fluent-Bit on your Suricata server. Full URL: POST https://<your-threatclaw>/api/tc/webhook/ingest/suricata?token=<this-token>. Regeneratable at any time (you'll need to update Fluent-Bit).",
       "required": false,
       "auto_generate": true
     }

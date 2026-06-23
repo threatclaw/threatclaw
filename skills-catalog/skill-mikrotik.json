@@ -21,27 +21,35 @@
     "url": {
       "type": "string",
       "description": "URL du routeur MikroTik",
+      "description_en": "MikroTik router URL",
       "placeholder": "https://192.168.88.1",
       "hint": "Adresse IP ou FQDN de votre routeur. Port 443 par défaut (HTTPS www-ssl). Assurez-vous que le service est activé dans IP > Services.",
+      "hint_en": "IP address or FQDN of your router. Port 443 by default (HTTPS www-ssl). Make sure the service is enabled in IP > Services.",
       "required": true
     },
     "username": {
       "type": "string",
       "description": "Utilisateur MikroTik (lecture seule)",
+      "description_en": "MikroTik user (read-only)",
       "placeholder": "tc-reader",
       "hint": "Compte dédié avec group « read,api,rest-api ». N'utilisez PAS le compte admin.",
+      "hint_en": "Dedicated account with the \"read,api,rest-api\" group. Do NOT use the admin account.",
       "required": true
     },
     "password": {
       "type": "password",
       "description": "Mot de passe",
+      "description_en": "Password",
       "hint": "Mot de passe du compte MikroTik. Stocké chiffré par ThreatClaw.",
+      "hint_en": "MikroTik account password. Stored encrypted by ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Laissez activé — MikroTik utilise un certificat auto-signé par défaut. Désactivez uniquement si vous avez installé un certificat valide.",
+      "hint_en": "Leave enabled — MikroTik uses a self-signed certificate by default. Disable only if you have installed a valid certificate.",
       "default": true
     }
   },

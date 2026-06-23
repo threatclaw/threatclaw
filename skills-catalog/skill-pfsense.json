@@ -19,27 +19,35 @@
     "url": {
       "type": "string",
       "description": "URL pfSense",
+      "description_en": "pfSense URL",
       "placeholder": "https://10.0.0.1",
       "hint": "Adresse de la GUI pfSense (sans /api). Utilise https://. L'IP de l'interface LAN typiquement.",
+      "hint_en": "Address of the pfSense GUI (without /api). Use https://. Typically the LAN interface IP.",
       "required": true
     },
     "auth_user": {
       "type": "string",
       "description": "Utilisateur API",
+      "description_en": "API user",
       "placeholder": "threatclaw",
       "hint": "Le nom du user API que tu as créé dans System > User Manager.",
+      "hint_en": "The name of the API user you created in System > User Manager.",
       "required": true
     },
     "auth_secret": {
       "type": "password",
       "description": "Mot de passe",
+      "description_en": "Password",
       "hint": "Mot de passe du user API. Stocké chiffré côté ThreatClaw.",
+      "hint_en": "API user password. Stored encrypted on the ThreatClaw side.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "pfSense utilise un certificat auto-signé par défaut. Laisse activé sauf si tu as un Let's Encrypt ou une PKI interne sur la GUI.",
+      "hint_en": "pfSense uses a self-signed certificate by default. Leave enabled unless you have a Let's Encrypt or an internal PKI on the GUI.",
       "default": true
     }
   },
@@ -52,7 +60,9 @@
       {
         "name": "pfsense_block_ip",
         "label": "Bloquer une IP",
-        "description": "Ajoute une IP à un alias firewall et applique la règle de drop. Réversible (suppression de l'alias = lift)."
+        "label_en": "Block an IP",
+        "description": "Ajoute une IP à un alias firewall et applique la règle de drop. Réversible (suppression de l'alias = lift).",
+        "description_en": "Adds an IP to a firewall alias and applies the drop rule. Reversible (removing the alias = lift)."
       }
     ]
   },

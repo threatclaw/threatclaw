@@ -22,14 +22,18 @@
     "rules": {
       "type": "string",
       "description": "Regles Semgrep (auto, p/owasp-top-ten, p/security-audit)",
+      "description_en": "Semgrep rules (auto, p/owasp-top-ten, p/security-audit)",
       "hint": "Jeu de regles a appliquer. 'auto' detecte le langage et applique les regles recommandees. 'p/owasp-top-ten' cible les 10 risques OWASP. 'p/security-audit' est plus exhaustif.",
+      "hint_en": "Rule set to apply. 'auto' detects the language and applies the recommended rules. 'p/owasp-top-ten' targets the OWASP Top 10 risks. 'p/security-audit' is more exhaustive.",
       "placeholder": "auto",
       "default": "auto"
     },
     "target": {
       "type": "string",
       "description": "Chemin du code source a analyser",
+      "description_en": "Path to the source code to analyze",
       "hint": "Chemin absolu vers le repertoire contenant le code source de votre application. ThreatClaw montera ce repertoire dans le conteneur d'analyse.",
+      "hint_en": "Absolute path to the directory containing your application's source code. ThreatClaw will mount this directory into the analysis container.",
       "placeholder": "/opt/monapp/src",
       "required": true
     }

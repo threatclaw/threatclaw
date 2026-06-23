@@ -20,8 +20,10 @@
         "google_safebrowsing_key": {
             "type": "password",
             "description": "Cle API Google Safe Browsing",
+            "description_en": "Google Safe Browsing API key",
             "required": true,
             "hint": "Obligatoire. Creez un projet sur console.cloud.google.com, activez l'API Safe Browsing et generez une cle.",
+            "hint_en": "Required. Create a project on console.cloud.google.com, enable the Safe Browsing API and generate a key.",
             "placeholder": "AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
         }
     },

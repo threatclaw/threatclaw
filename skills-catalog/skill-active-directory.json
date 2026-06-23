@@ -20,41 +20,53 @@
     "host": {
       "type": "string",
       "description": "Serveur AD / LDAP",
+      "description_en": "AD / LDAP server",
       "placeholder": "dc01.corp.local",
       "hint": "Le nom DNS ou l'adresse IP de votre contrôleur de domaine Active Directory (ou serveur OpenLDAP).",
+      "hint_en": "The DNS name or IP address of your Active Directory domain controller (or OpenLDAP server).",
       "required": true
     },
     "port": {
       "type": "number",
       "description": "Port LDAP",
+      "description_en": "LDAP port",
       "placeholder": "636",
       "hint": "Port 636 pour LDAPS (recommandé, chiffré), 389 pour LDAP en clair. Utilisez LDAPS en production.",
+      "hint_en": "Port 636 for LDAPS (recommended, encrypted), 389 for plaintext LDAP. Use LDAPS in production.",
       "default": 636
     },
     "base_dn": {
       "type": "string",
       "description": "Base DN de recherche",
+      "description_en": "Search Base DN",
       "placeholder": "dc=corp,dc=local",
       "hint": "Le point de départ de la recherche LDAP. Correspond généralement à votre nom de domaine (ex: corp.local → dc=corp,dc=local).",
+      "hint_en": "The starting point of the LDAP search. Usually matches your domain name (e.g. corp.local → dc=corp,dc=local).",
       "required": true
     },
     "bind_dn": {
       "type": "string",
       "description": "DN du compte de service",
+      "description_en": "Service account DN",
       "placeholder": "cn=tc-readonly,ou=ServiceAccounts,dc=corp,dc=local",
       "hint": "Le Distinguished Name (DN) complet du compte de service. Créez un compte dédié avec des droits de lecture seule sur l'annuaire.",
+      "hint_en": "The full Distinguished Name (DN) of the service account. Create a dedicated account with read-only rights on the directory.",
       "required": true
     },
     "bind_password": {
       "type": "password",
       "description": "Mot de passe du compte de service",
+      "description_en": "Service account password",
       "hint": "Le mot de passe du compte de service LDAP. Utilisez un mot de passe fort et unique.",
+      "hint_en": "The LDAP service account password. Use a strong, unique password.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Activez cette option si votre AD utilise un certificat auto-signé (courant en lab). En production avec une PKI interne, désactivez-la.",
+      "hint_en": "Enable this option if your AD uses a self-signed certificate (common in labs). In production with an internal PKI, disable it.",
       "default": false
     }
   },
@@ -79,12 +91,16 @@
       {
         "name": "ad_disable_account",
         "label": "Désactiver un compte",
-        "description": "Set userAccountControl pour désactiver le compte. Réversible (re-activation manuelle requise)."
+        "label_en": "Disable an account",
+        "description": "Set userAccountControl pour désactiver le compte. Réversible (re-activation manuelle requise).",
+        "description_en": "Sets userAccountControl to disable the account. Reversible (manual re-activation required)."
       },
       {
         "name": "ad_reset_password",
         "label": "Forcer un changement de mot de passe (à venir)",
-        "description": "Set pwdLastSet=0 pour forcer le user à changer son mot de passe au prochain login. Pas de génération de mdp temp côté TC : le user passe par le portail self-service standard."
+        "label_en": "Force a password change (coming soon)",
+        "description": "Set pwdLastSet=0 pour forcer le user à changer son mot de passe au prochain login. Pas de génération de mdp temp côté TC : le user passe par le portail self-service standard.",
+        "description_en": "Sets pwdLastSet=0 to force the user to change their password at the next login. No temporary password generation on the TC side: the user goes through the standard self-service portal."
       }
     ]
   },

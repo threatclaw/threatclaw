@@ -20,8 +20,10 @@
         "phishtank_app_key": {
             "type": "password",
             "description": "PhishTank App Key (optionnelle, limites plus elevees)",
+            "description_en": "PhishTank App Key (optional, higher limits)",
             "required": false,
             "hint": "Optionnel. Creez un compte sur phishtank.org pour obtenir une App Key gratuite.",
+            "hint_en": "Optional. Create an account at phishtank.org to get a free App Key.",
             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
     },

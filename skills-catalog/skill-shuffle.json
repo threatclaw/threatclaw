@@ -21,21 +21,27 @@
     "url": {
       "type": "string",
       "description": "URL Shuffle",
+      "description_en": "Shuffle URL",
       "placeholder": "https://shuffle.monentreprise.local:3443",
       "hint": "Adresse complète avec port. 3443 en accès direct ; 443 si exposé via reverse-proxy. Utilisez https://.",
+      "hint_en": "Full address with port. 3443 for direct access; 443 if exposed via a reverse proxy. Use https://.",
       "required": true
     },
     "api_key": {
       "type": "password",
       "description": "Clé API Shuffle",
+      "description_en": "Shuffle API key",
       "placeholder": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
       "hint": "Clé API du compte tc-reader. À récupérer dans Profil > API key. Stockée chiffrée par ThreatClaw.",
+      "hint_en": "API key of the tc-reader account. Get it in Profile > API key. Stored encrypted by ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Activer si Shuffle utilise un certificat auto-signé. Désactivez avec PKI reconnue.",
+      "hint_en": "Enable if Shuffle uses a self-signed certificate. Disable with a recognized PKI.",
       "default": true
     }
   },

@@ -21,7 +21,9 @@
     "target": {
       "type": "string",
       "description": "Domaine cible (ex: monentreprise.fr)",
+      "description_en": "Target domain (e.g. mycompany.com)",
       "hint": "Nom de domaine principal a enumerer. Subfinder trouvera tous les sous-domaines associes (mail.monentreprise.fr, vpn.monentreprise.fr, etc.).",
+      "hint_en": "Main domain name to enumerate. Subfinder will find all the associated subdomains (mail.mycompany.com, vpn.mycompany.com, etc.).",
       "placeholder": "monentreprise.fr",
       "required": true
     }

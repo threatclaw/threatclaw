@@ -21,47 +21,61 @@
     "url": {
       "type": "string",
       "description": "URL Proxmox Backup Server",
+      "description_en": "Proxmox Backup Server URL",
       "placeholder": "https://pbs.monentreprise.local:8007",
       "hint": "Adresse complète de PBS avec le port (8007 par défaut). Utilisez https://.",
+      "hint_en": "Full PBS address with port (8007 by default). Use https://.",
       "required": true
     },
     "token_name": {
       "type": "string",
       "description": "API Token Name (recommandé)",
+      "description_en": "API Token Name (recommended)",
       "placeholder": "tc-audit@pbs!threatclaw",
       "hint": "Format complet : user@realm!nom-du-token. Si renseigné, username/password sont ignorés.",
+      "hint_en": "Full format: user@realm!token-name. If set, username/password are ignored.",
       "required": false
     },
     "token_value": {
       "type": "password",
       "description": "API Token Value",
+      "description_en": "API Token Value",
       "hint": "Le secret du token, affiché une seule fois à la création. Si perdu, supprimez et recréez le token.",
+      "hint_en": "The token secret, shown only once at creation. If lost, delete and recreate the token.",
       "required": false
     },
     "username": {
       "type": "string",
       "description": "Username (alternative)",
+      "description_en": "Username (alternative)",
       "placeholder": "tc-audit@pbs",
       "hint": "Utilisé uniquement si aucun token n'est fourni. JAMAIS root@pam. Format user@realm.",
+      "hint_en": "Used only if no token is provided. NEVER root@pam. Format user@realm.",
       "required": false
     },
     "password": {
       "type": "password",
       "description": "Password (alternative)",
+      "description_en": "Password (alternative)",
       "hint": "Mot de passe du compte PBS. Non requis si API Token utilisé.",
+      "hint_en": "PBS account password. Not required if an API Token is used.",
       "required": false
     },
     "datastore": {
       "type": "string",
       "description": "Datastore à surveiller (optionnel)",
+      "description_en": "Datastore to monitor (optional)",
       "placeholder": "backup-store",
       "hint": "Nom d'un datastore spécifique. Laissez vide pour tous surveiller.",
+      "hint_en": "Name of a specific datastore. Leave empty to monitor all of them.",
       "required": false
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "PBS utilise un certificat auto-signé par défaut. Laissez activé sauf PKI reconnue.",
+      "hint_en": "PBS uses a self-signed certificate by default. Leave enabled unless you have a recognized PKI.",
       "default": true
     }
   },

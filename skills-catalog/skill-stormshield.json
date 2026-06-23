@@ -19,34 +19,44 @@
     "url": {
       "type": "string",
       "description": "URL du pare-feu SNS",
+      "description_en": "SNS firewall URL",
       "placeholder": "https://192.168.1.254",
       "hint": "Adresse HTTPS de l'interface d'administration du SNS.",
+      "hint_en": "HTTPS address of the SNS administration interface.",
       "required": true
     },
     "auth_user": {
       "type": "string",
       "description": "Compte d'administration",
+      "description_en": "Administration account",
       "placeholder": "admin",
       "hint": "Login d'un compte d'administration SNS. Préférez un compte dédié à ThreatClaw.",
+      "hint_en": "Login of an SNS administration account. Prefer a dedicated ThreatClaw account.",
       "required": true
     },
     "auth_secret": {
       "type": "password",
       "description": "Mot de passe",
+      "description_en": "Password",
       "hint": "Mot de passe du compte d'administration. Stocké chiffré.",
+      "hint_en": "Administration account password. Stored encrypted.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer le certificat TLS",
+      "description_en": "Skip the TLS certificate",
       "hint": "Le SNS présente un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat de confiance.",
+      "hint_en": "The SNS presents a self-signed certificate by default. Leave enabled unless you have installed a trusted certificate.",
       "default": true
     },
     "syslog_dest": {
       "type": "string",
       "description": "Adresse syslog de ThreatClaw",
+      "description_en": "ThreatClaw syslog address",
       "placeholder": "10.0.0.10",
       "hint": "IP de ThreatClaw joignable depuis le pare-feu. Renseignée, ThreatClaw configure automatiquement l'export syslog du SNS (UDP 514, RFC3164) vers cette adresse — aucune manipulation sur le pare-feu.",
+      "hint_en": "IP of ThreatClaw reachable from the firewall. When set, ThreatClaw automatically configures the SNS syslog export (UDP 514, RFC3164) to this address — no action on the firewall.",
       "required": false
     }
   },
@@ -59,22 +69,30 @@
       {
         "name": "stormshield_block_ip",
         "label": "Bloquer une IP",
-        "description": "Crée un objet hôte pour l'IP cible et insère une règle de filtrage block en tête de politique. Réversible (suppression de la règle et de l'objet)."
+        "label_en": "Block an IP",
+        "description": "Crée un objet hôte pour l'IP cible et insère une règle de filtrage block en tête de politique. Réversible (suppression de la règle et de l'objet).",
+        "description_en": "Creates a host object for the target IP and inserts a block filtering rule at the top of the policy. Reversible (deletion of the rule and the object)."
       },
       {
         "name": "stormshield_unblock_ip",
         "label": "Débloquer une IP",
-        "description": "Retire la règle de blocage et l'objet hôte précédemment créés par ThreatClaw pour cette IP."
+        "label_en": "Unblock an IP",
+        "description": "Retire la règle de blocage et l'objet hôte précédemment créés par ThreatClaw pour cette IP.",
+        "description_en": "Removes the blocking rule and the host object previously created by ThreatClaw for this IP."
       },
       {
         "name": "stormshield_isolate_host",
         "label": "Isoler un hôte",
-        "description": "Coupe tout le trafic d'un hôte interne compromis via une règle de filtrage block (source = hôte, destination = any). Réversible."
+        "label_en": "Isolate a host",
+        "description": "Coupe tout le trafic d'un hôte interne compromis via une règle de filtrage block (source = hôte, destination = any). Réversible.",
+        "description_en": "Cuts all traffic from a compromised internal host via a block filtering rule (source = host, destination = any). Reversible."
       },
       {
         "name": "stormshield_block_url",
         "label": "Bloquer une URL",
-        "description": "Ajoute le domaine/URL à un objet FQDN bloqué appliqué au filtrage sortant. Réversible. Nécessite une politique de filtrage URL active."
+        "label_en": "Block a URL",
+        "description": "Ajoute le domaine/URL à un objet FQDN bloqué appliqué au filtrage sortant. Réversible. Nécessite une politique de filtrage URL active.",
+        "description_en": "Adds the domain/URL to a blocked FQDN object applied to outbound filtering. Reversible. Requires an active URL filtering policy."
       }
     ]
   },

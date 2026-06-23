@@ -22,7 +22,9 @@
     "target": {
       "type": "string",
       "description": "Image Docker ou repertoire a analyser",
+      "description_en": "Docker image or directory to analyze",
       "hint": "Image Docker (locale ou distante) ou chemin vers un repertoire de code. Syft detectera automatiquement les gestionnaires de paquets (npm, pip, maven, etc.).",
+      "hint_en": "Docker image (local or remote) or path to a code directory. Syft will automatically detect the package managers (npm, pip, maven, etc.).",
       "placeholder": "monapp:production",
       "required": true
     }

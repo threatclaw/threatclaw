@@ -22,7 +22,9 @@
     "target": {
       "type": "string",
       "description": "Chemin du depot Git ou repertoire a scanner",
+      "description_en": "Path to the Git repository or directory to scan",
       "hint": "Chemin absolu vers le depot Git ou le repertoire contenant le code source a analyser. L'historique Git complet sera parcouru si c'est un depot Git.",
+      "hint_en": "Absolute path to the Git repository or directory containing the source code to analyze. The full Git history will be scanned if it's a Git repository.",
       "placeholder": "/opt/monapp",
       "required": true
     }

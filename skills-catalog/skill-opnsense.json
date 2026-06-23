@@ -19,27 +19,35 @@
     "url": {
       "type": "string",
       "description": "URL OPNsense",
+      "description_en": "OPNsense URL",
       "placeholder": "https://10.0.0.1",
       "hint": "Adresse de la GUI OPNsense (sans /api). Utilise https://. L'IP de l'interface LAN typiquement.",
+      "hint_en": "Address of the OPNsense GUI (without /api). Use https://. Typically the LAN interface IP.",
       "required": true
     },
     "auth_user": {
       "type": "string",
       "description": "Clé API",
+      "description_en": "API Key",
       "placeholder": "key=...",
       "hint": "La valeur du champ 'key' dans le fichier .txt téléchargé depuis System > Access > Users > API keys.",
+      "hint_en": "The value of the 'key' field in the .txt file downloaded from System > Access > Users > API keys.",
       "required": true
     },
     "auth_secret": {
       "type": "password",
       "description": "Secret API",
+      "description_en": "API Secret",
       "hint": "La valeur du champ 'secret' dans le fichier .txt téléchargé. Stocké chiffré côté ThreatClaw.",
+      "hint_en": "The value of the 'secret' field in the downloaded .txt file. Stored encrypted on the ThreatClaw side.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "OPNsense utilise un certificat auto-signé par défaut. Laisse activé sauf si tu as un Let's Encrypt ou une PKI interne sur la GUI.",
+      "hint_en": "OPNsense uses a self-signed certificate by default. Leave enabled unless you have a Let's Encrypt or an internal PKI on the GUI.",
       "default": true
     }
   },
@@ -52,17 +60,23 @@
       {
         "name": "opnsense_block_ip",
         "label": "Bloquer une IP",
-        "description": "Ajoute une IP à un alias firewall et applique la règle de drop. Réversible (suppression de l'alias = lift)."
+        "label_en": "Block an IP",
+        "description": "Ajoute une IP à un alias firewall et applique la règle de drop. Réversible (suppression de l'alias = lift).",
+        "description_en": "Adds an IP to a firewall alias and applies the drop rule. Reversible (removing the alias = lift)."
       },
       {
         "name": "opnsense_kill_states",
         "label": "Tuer les états actifs (à venir)",
-        "description": "Termine immédiatement toutes les connexions actives venant ou allant vers une IP. Utile pour couper net une exfil pendant qu'on bloque côté firewall."
+        "label_en": "Kill active states (coming soon)",
+        "description": "Termine immédiatement toutes les connexions actives venant ou allant vers une IP. Utile pour couper net une exfil pendant qu'on bloque côté firewall.",
+        "description_en": "Immediately terminates all active connections coming from or going to an IP. Useful to cut an exfiltration short while you block at the firewall."
       },
       {
         "name": "opnsense_quarantine_mac",
         "label": "Quarantaine MAC (à venir)",
-        "description": "Déplace un MAC vers un VLAN de quarantaine isolé du LAN principal. Nécessite une config VLAN tagging existante."
+        "label_en": "MAC quarantine (coming soon)",
+        "description": "Déplace un MAC vers un VLAN de quarantaine isolé du LAN principal. Nécessite une config VLAN tagging existante.",
+        "description_en": "Moves a MAC to a quarantine VLAN isolated from the main LAN. Requires an existing VLAN tagging config."
       }
     ]
   },

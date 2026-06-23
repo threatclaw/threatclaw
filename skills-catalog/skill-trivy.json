@@ -22,14 +22,18 @@
     "severity": {
       "type": "string",
       "description": "Niveaux de severite (CRITICAL,HIGH,MEDIUM,LOW)",
+      "description_en": "Severity levels (CRITICAL,HIGH,MEDIUM,LOW)",
       "hint": "Niveaux de severite a inclure dans les resultats, separes par des virgules. 'CRITICAL,HIGH' est recommande pour eviter le bruit. Ajoutez MEDIUM pour un scan plus complet.",
+      "hint_en": "Severity levels to include in the results, separated by commas. 'CRITICAL,HIGH' is recommended to avoid noise. Add MEDIUM for a more complete scan.",
       "placeholder": "CRITICAL,HIGH",
       "default": "CRITICAL,HIGH"
     },
     "target": {
       "type": "string",
       "description": "Image Docker a scanner (ex: nginx:latest)",
+      "description_en": "Docker image to scan (e.g. nginx:latest)",
       "hint": "Nom de l'image Docker a analyser. Supporte les images locales et distantes. Format : nom:tag ou registre/nom:tag.",
+      "hint_en": "Name of the Docker image to analyze. Supports local and remote images. Format: name:tag or registry/name:tag.",
       "placeholder": "nginx:latest",
       "required": true
     }

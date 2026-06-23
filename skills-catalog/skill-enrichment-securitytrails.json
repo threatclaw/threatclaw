@@ -21,8 +21,10 @@
         "securitytrails_api_key": {
             "type": "password",
             "description": "Cle API SecurityTrails",
+            "description_en": "SecurityTrails API key",
             "required": true,
             "hint": "Obligatoire. Inscrivez-vous sur securitytrails.com pour obtenir une cle gratuite (50 req/mois).",
+            "hint_en": "Required. Sign up at securitytrails.com to get a free key (50 req/month).",
             "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
     },

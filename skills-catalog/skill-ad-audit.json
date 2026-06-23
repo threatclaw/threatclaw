@@ -20,35 +20,45 @@
     "dc_host": {
       "type": "string",
       "description": "Controleur de domaine (ex: dc01.corp.local)",
+      "description_en": "Domain controller (e.g. dc01.corp.local)",
       "hint": "Nom d'hote ou adresse IP du controleur de domaine a interroger. Doit etre accessible depuis le serveur ThreatClaw sur le port LDAP (389) ou LDAPS (636).",
+      "hint_en": "Hostname or IP address of the domain controller to query. Must be reachable from the ThreatClaw server on the LDAP (389) or LDAPS (636) port.",
       "placeholder": "dc01.corp.local",
       "required": true
     },
     "domain": {
       "type": "string",
       "description": "Nom de domaine (ex: corp.local)",
+      "description_en": "Domain name (e.g. corp.local)",
       "hint": "Nom de domaine Active Directory complet (FQDN). Sera utilise pour construire le Base DN automatiquement.",
+      "hint_en": "Full Active Directory domain name (FQDN). Will be used to build the Base DN automatically.",
       "placeholder": "corp.local",
       "required": true
     },
     "username": {
       "type": "string",
       "description": "Compte de lecture AD (ex: audit@corp.local) — pas besoin d'admin",
+      "description_en": "AD read account (e.g. audit@corp.local) — no admin needed",
       "hint": "Compte Active Directory avec droits de lecture. Un compte standard suffit, pas besoin de privileges administrateurs. Format : user@domaine ou DOMAINE\\user.",
+      "hint_en": "Active Directory account with read rights. A standard account is enough, no administrator privileges needed. Format: user@domain or DOMAIN\\user.",
       "placeholder": "audit@corp.local",
       "required": true
     },
     "password": {
       "type": "password",
       "description": "Mot de passe du compte",
+      "description_en": "Account password",
       "hint": "Mot de passe du compte de lecture AD. Stocke de maniere chiffree dans la configuration ThreatClaw.",
+      "hint_en": "AD read account password. Stored encrypted in the ThreatClaw configuration.",
       "placeholder": "",
       "required": true
     },
     "scan_schedule": {
       "type": "select",
       "description": "Frequence d'audit",
+      "description_en": "Audit frequency",
       "hint": "Frequence de l'audit AD automatique. Un audit mensuel permet de detecter les derives de configuration et les nouveaux comptes a risque.",
+      "hint_en": "Frequency of the automatic AD audit. A monthly audit detects configuration drift and new risky accounts.",
       "options": [
         "Manuel uniquement",
         "Chaque lundi a 2h",

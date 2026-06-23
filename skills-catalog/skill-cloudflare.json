@@ -18,14 +18,18 @@
     "cf_api_token": {
       "type": "password",
       "description": "API Token Cloudflare",
+      "description_en": "Cloudflare API Token",
       "hint": "Créez un token dédié dans Cloudflare Dashboard > My Profile > API Tokens > Create Token. Donnez uniquement la permission 'Analytics:Read' pour la zone concernée.",
+      "hint_en": "Create a dedicated token in Cloudflare Dashboard > My Profile > API Tokens > Create Token. Grant only the 'Analytics:Read' permission for the relevant zone.",
       "required": true
     },
     "cf_zone_id": {
       "type": "string",
       "description": "Zone ID Cloudflare",
+      "description_en": "Cloudflare Zone ID",
       "placeholder": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
       "hint": "Identifiant unique de votre zone DNS. Visible dans Cloudflare Dashboard > votre domaine > Overview (colonne droite, en bas).",
+      "hint_en": "Unique identifier of your DNS zone. Shown in Cloudflare Dashboard > your domain > Overview (right column, bottom).",
       "required": true
     }
   },

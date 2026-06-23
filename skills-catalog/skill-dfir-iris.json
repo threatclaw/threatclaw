@@ -21,27 +21,35 @@
     "url": {
       "type": "string",
       "description": "URL DFIR-IRIS",
+      "description_en": "DFIR-IRIS URL",
       "placeholder": "https://iris.monentreprise.local:8443",
       "hint": "Adresse complète de votre serveur IRIS avec le port. 8443 par défaut. Utilisez https://.",
+      "hint_en": "Full address of your IRIS server with port. 8443 by default. Use https://.",
       "required": true
     },
     "api_key": {
       "type": "password",
       "description": "Clé API IRIS",
+      "description_en": "IRIS API key",
       "placeholder": "eyJxxxxxxxxxxxxxxxxxxx...",
       "hint": "Clé API du compte tc-reader dédié. À récupérer dans User menu > My settings > API Key. Stockée chiffrée par ThreatClaw.",
+      "hint_en": "API key of the dedicated tc-reader account. Get it in User menu > My settings > API Key. Stored encrypted by ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Laissez activé si IRIS utilise un certificat auto-signé (cas par défaut). Désactivez en production avec Let's Encrypt.",
+      "hint_en": "Leave enabled if IRIS uses a self-signed certificate (the default case). Disable in production with Let's Encrypt.",
       "default": true
     },
     "max_cases": {
       "type": "number",
       "description": "Nombre max de cases à traiter par cycle",
+      "description_en": "Max cases to process per cycle",
       "hint": "Par défaut 50. Augmentez si vous avez beaucoup d'incidents ouverts (ex: 200).",
+      "hint_en": "Default 50. Increase if you have many open incidents (e.g. 200).",
       "default": 50,
       "required": false
     }

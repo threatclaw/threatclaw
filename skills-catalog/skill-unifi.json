@@ -18,34 +18,44 @@
     "unifi_url": {
       "type": "string",
       "description": "URL du UniFi Controller",
+      "description_en": "UniFi Controller URL",
       "placeholder": "https://192.168.1.1:8443",
       "hint": "L'adresse de votre UniFi Controller avec le port (8443 par défaut). Utilisez https:// car le contrôleur utilise TLS par défaut.",
+      "hint_en": "The address of your UniFi Controller with port (8443 by default). Use https:// because the controller uses TLS by default.",
       "required": true
     },
     "unifi_username": {
       "type": "string",
       "description": "Nom d'utilisateur UniFi",
+      "description_en": "UniFi username",
       "placeholder": "threatclaw-readonly",
       "hint": "Créez un compte local dédié dans UniFi avec des droits de lecture seule. Évitez d'utiliser le compte admin principal.",
+      "hint_en": "Create a dedicated local account in UniFi with read-only rights. Avoid using the main admin account.",
       "required": true
     },
     "unifi_password": {
       "type": "password",
       "description": "Mot de passe UniFi",
+      "description_en": "UniFi password",
       "hint": "Le mot de passe du compte UniFi. Utilisez un mot de passe fort et unique.",
+      "hint_en": "The UniFi account password. Use a strong, unique password.",
       "required": true
     },
     "unifi_site": {
       "type": "string",
       "description": "Nom du site UniFi",
+      "description_en": "UniFi site name",
       "placeholder": "default",
       "hint": "Le nom du site dans UniFi. La plupart des installations n'ont qu'un site nommé 'default'. Vérifiez dans Settings > System > General.",
+      "hint_en": "The site name in UniFi. Most installations have a single site named 'default'. Check in Settings > System > General.",
       "required": false
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Le contrôleur UniFi utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un vrai certificat.",
+      "hint_en": "The UniFi controller uses a self-signed certificate by default. Leave enabled unless you have installed a real certificate.",
       "default": true
     }
   },

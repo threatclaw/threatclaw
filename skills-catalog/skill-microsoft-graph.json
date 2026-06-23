@@ -20,49 +20,63 @@
     "tenant_id": {
       "type": "string",
       "description": "Directory (tenant) ID",
+      "description_en": "Directory (tenant) ID",
       "placeholder": "11111111-2222-3333-4444-555555555555",
       "hint": "GUID affiché dans Entra Portal > App registrations > ton app > Overview. Identifie le tenant Azure AD du client.",
+      "hint_en": "GUID shown in Entra Portal > App registrations > your app > Overview. Identifies the client's Azure AD tenant.",
       "required": true
     },
     "client_id": {
       "type": "string",
       "description": "Application (client) ID",
+      "description_en": "Application (client) ID",
       "placeholder": "00000000-1111-2222-3333-444444444444",
       "hint": "GUID de l'app enregistrée. Identifie ThreatClaw auprès d'Entra. Pas sensible — le cert/secret est ce qui authentifie.",
+      "hint_en": "GUID of the registered app. Identifies ThreatClaw to Entra. Not sensitive — the cert/secret is what authenticates.",
       "required": true
     },
     "auth_method": {
       "type": "string",
       "description": "Méthode d'authentification",
+      "description_en": "Authentication method",
       "placeholder": "certificate",
       "hint": "'certificate' (recommandé en production — pas de rotation de secret, support HSM) ou 'secret' (simple, 24 mois max, pour test rapide). Défaut: certificate.",
+      "hint_en": "'certificate' (recommended in production — no secret rotation, HSM support) or 'secret' (simple, 24 months max, for a quick test). Default: certificate.",
       "default": "certificate",
       "required": false
     },
     "client_secret": {
       "type": "password",
       "description": "Client secret (si auth_method=secret)",
+      "description_en": "Client secret (if auth_method=secret)",
       "hint": "Le champ 'Value' copié depuis Certificates & secrets après création. Entra ne le reaffiche jamais après. Max 24 mois, à renouveler.",
+      "hint_en": "The 'Value' field copied from Certificates & secrets after creation. Entra never shows it again afterward. Max 24 months, to be renewed.",
       "required": false
     },
     "client_cert_pem": {
       "type": "password",
       "description": "Certificat client PEM (si auth_method=certificate)",
+      "description_en": "Client PEM certificate (if auth_method=certificate)",
       "placeholder": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
       "hint": "Certificat X.509 public signé par la CA de ton choix (auto-signé OK en dev). Uploadé en .cer dans Entra + collé ici pour que ThreatClaw puisse signer le JWT client assertion.",
+      "hint_en": "Public X.509 certificate signed by the CA of your choice (self-signed OK in dev). Uploaded as .cer in Entra + pasted here so ThreatClaw can sign the client assertion JWT.",
       "required": false
     },
     "client_key_pem": {
       "type": "password",
       "description": "Clé privée PEM (si auth_method=certificate)",
+      "description_en": "PEM private key (if auth_method=certificate)",
       "placeholder": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
       "hint": "Clé privée RSA correspondant au certificat. PKCS#1 ou PKCS#8 acceptés. Chiffrée au repos dans skill_configs.",
+      "hint_en": "RSA private key matching the certificate. PKCS#1 or PKCS#8 accepted. Encrypted at rest in skill_configs.",
       "required": false
     },
     "max_findings_per_cycle": {
       "type": "number",
       "description": "Limite d'events par cycle",
+      "description_en": "Events limit per cycle",
       "hint": "Soft cap pour éviter qu'un backlog (ex. historique signIns 7j au premier branchement) ne bloque le scheduler. 1000 par défaut. Les events non ingérés sont repris au cycle suivant via curseur.",
+      "hint_en": "Soft cap to prevent a backlog (e.g. 7-day signIns history on first connection) from blocking the scheduler. 1000 by default. Events not ingested are resumed on the next cycle via a cursor.",
       "default": 1000
     }
   },

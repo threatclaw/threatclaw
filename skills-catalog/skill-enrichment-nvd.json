@@ -20,8 +20,10 @@
         "api_key": {
             "type": "password",
             "description": "Cle API NVD (optionnelle — 50 req/30s avec cle, 5 req/30s sans)",
+            "description_en": "NVD API key (optional — 50 req/30s with a key, 5 req/30s without)",
             "required": false,
             "hint": "Optionnel mais recommande. Demandez une cle gratuite sur https://nvd.nist.gov/developers/request-an-api-key",
+            "hint_en": "Optional but recommended. Request a free key at https://nvd.nist.gov/developers/request-an-api-key",
             "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
         }
     },

@@ -19,32 +19,42 @@
     "glpi_url": {
       "type": "string",
       "description": "URL de GLPI",
+      "description_en": "GLPI URL",
       "placeholder": "http://192.168.1.10:9090",
       "hint": "L'adresse de votre serveur GLPI. L'API REST doit être activée dans Configuration > Générale > API.",
+      "hint_en": "The address of your GLPI server. The REST API must be enabled in Setup > General > API.",
       "required": true
     },
     "glpi_app_token": {
       "type": "password",
       "description": "App-Token GLPI",
+      "description_en": "GLPI App-Token",
       "hint": "Le token d'application GLPI. Se trouve dans Configuration > Générale > API. Nécessaire pour toute requête API.",
+      "hint_en": "The GLPI application token. Found in Setup > General > API. Required for any API request.",
       "required": true
     },
     "glpi_user_token": {
       "type": "password",
       "description": "User-Token GLPI",
+      "description_en": "GLPI User-Token",
       "hint": "Le token utilisateur. Se trouve dans Administration > Utilisateurs > votre user > Clés d'accès distantes > Régénérer.",
+      "hint_en": "The user token. Found in Administration > Users > your user > Remote access keys > Regenerate.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer le certificat TLS",
+      "description_en": "Skip the TLS certificate",
       "hint": "Activez si GLPI utilise un certificat auto-signé.",
+      "hint_en": "Enable if GLPI uses a self-signed certificate.",
       "default": false
     },
     "auto_ticket": {
       "type": "boolean",
       "description": "Créer automatiquement des tickets pour les findings CRITICAL",
+      "description_en": "Automatically create tickets for CRITICAL findings",
       "hint": "Si activé, ThreatClaw crée un ticket GLPI pour chaque finding de sévérité CRITICAL confirmé par le pipeline d'investigation.",
+      "hint_en": "If enabled, ThreatClaw creates a GLPI ticket for each CRITICAL-severity finding confirmed by the investigation pipeline.",
       "default": false
     }
   },

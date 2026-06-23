@@ -19,8 +19,10 @@
     "connection_mode": {
       "type": "string",
       "description": "Mode de connexion",
+      "description_en": "Connection mode",
       "placeholder": "webhook",
       "hint": "\"agent\" si vous installez l'agent ThreatClaw via le one-liner. \"webhook\" si vous avez déjà Fleet/Kolide/osquery déployé. Dans les deux cas, le token ci-dessous sert à authentifier les données entrantes.",
+      "hint_en": "\"agent\" if you install the ThreatClaw agent via the one-liner. \"webhook\" if you already have Fleet/Kolide/osquery deployed. In both cases, the token below authenticates the incoming data.",
       "required": true,
       "default": "webhook",
       "enum": ["agent", "webhook"]
@@ -28,7 +30,9 @@
     "webhook_token": {
       "type": "password",
       "description": "Token webhook (généré automatiquement)",
+      "description_en": "Webhook token (generated automatically)",
       "hint": "Généré automatiquement. Utilisé dans les DEUX modes (agent ET webhook). À passer en paramètre du one-liner d'installation agent, OU à configurer dans Fleet/Kolide comme custom log destination. URL complète : POST https://<votre-threatclaw>/api/tc/webhook/ingest/osquery?token=<ce-token>",
+      "hint_en": "Generated automatically. Used in BOTH modes (agent AND webhook). Pass it as a parameter of the agent install one-liner, OR configure it in Fleet/Kolide as a custom log destination. Full URL: POST https://<your-threatclaw>/api/tc/webhook/ingest/osquery?token=<this-token>",
       "required": false,
       "auto_generate": true
     }

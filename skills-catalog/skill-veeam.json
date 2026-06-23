@@ -21,33 +21,43 @@
     "url": {
       "type": "string",
       "description": "URL du serveur Veeam",
+      "description_en": "Veeam server URL",
       "placeholder": "https://veeam.monentreprise.local:9419",
       "hint": "Adresse complète du serveur Veeam Backup & Replication avec le port de l'API REST (9419 par défaut). Utilisez https://.",
+      "hint_en": "Full address of the Veeam Backup & Replication server with the REST API port (9419 by default). Use https://.",
       "required": true
     },
     "username": {
       "type": "string",
       "description": "Utilisateur Veeam (lecture seule)",
+      "description_en": "Veeam user (read-only)",
       "placeholder": "tc-readonly",
       "hint": "Compte dédié avec UNIQUEMENT le rôle « Veeam Backup Viewer ». N'utilisez jamais un compte admin. Formats acceptés : local (tc-readonly), NetBIOS (DOMAINE\\tc-readonly) ou UPN (tc-readonly@domaine.local).",
+      "hint_en": "Dedicated account with ONLY the \"Veeam Backup Viewer\" role. Never use an admin account. Accepted formats: local (tc-readonly), NetBIOS (DOMAIN\\tc-readonly) or UPN (tc-readonly@domain.local).",
       "required": true
     },
     "password": {
       "type": "password",
       "description": "Mot de passe",
+      "description_en": "Password",
       "hint": "Mot de passe du compte Veeam. Stocké chiffré par ThreatClaw.",
+      "hint_en": "Veeam account password. Stored encrypted by ThreatClaw.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer la vérification du certificat TLS",
+      "description_en": "Skip TLS certificate verification",
       "hint": "Veeam utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez remplacé le certificat par une autorité reconnue.",
+      "hint_en": "Veeam uses a self-signed certificate by default. Leave enabled unless you have replaced the certificate with a recognized authority.",
       "default": true
     },
     "max_sessions": {
       "type": "number",
       "description": "Nombre max de sessions à analyser par cycle",
+      "description_en": "Max sessions to analyze per cycle",
       "hint": "Par défaut 100. Augmentez si vous avez beaucoup de jobs courts (ex: 500+).",
+      "hint_en": "Default 100. Increase if you have many short jobs (e.g. 500+).",
       "default": 100,
       "required": false
     }

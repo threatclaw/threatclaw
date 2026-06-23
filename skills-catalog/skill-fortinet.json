@@ -19,20 +19,26 @@
     "url": {
       "type": "string",
       "description": "URL du FortiGate",
+      "description_en": "FortiGate URL",
       "placeholder": "https://192.168.1.1",
       "hint": "L'adresse de votre FortiGate. Utilisez https:// et l'IP de l'interface de management.",
+      "hint_en": "The address of your FortiGate. Use https:// and the management interface IP.",
       "required": true
     },
     "api_key": {
       "type": "password",
       "description": "API Key FortiGate",
+      "description_en": "FortiGate API Key",
       "hint": "Créez un admin REST API dans FortiGate : System > Administrators > Create New > REST API Admin. Copiez le token généré. Attribuez un profil avec des droits de lecture uniquement.",
+      "hint_en": "Create a REST API admin in FortiGate: System > Administrators > Create New > REST API Admin. Copy the generated token. Assign a profile with read-only rights.",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer le certificat TLS",
+      "description_en": "Skip the TLS certificate",
       "hint": "FortiGate utilise un certificat auto-signé par défaut. Laissez activé sauf si vous avez installé un certificat de confiance.",
+      "hint_en": "FortiGate uses a self-signed certificate by default. Leave enabled unless you have installed a trusted certificate.",
       "default": true
     }
   },
@@ -45,12 +51,16 @@
       {
         "name": "fortinet_block_ip",
         "label": "Bloquer une IP",
-        "description": "Crée un address object FortiGate pour l'IP cible et l'attache à une policy DROP en sortie de la zone WAN. Réversible (retrait du membre + suppression de l'address)."
+        "label_en": "Block an IP",
+        "description": "Crée un address object FortiGate pour l'IP cible et l'attache à une policy DROP en sortie de la zone WAN. Réversible (retrait du membre + suppression de l'address).",
+        "description_en": "Creates a FortiGate address object for the target IP and attaches it to a DROP policy outbound from the WAN zone. Reversible (member removal + address deletion)."
       },
       {
         "name": "fortinet_block_url",
         "label": "Bloquer une URL",
-        "description": "Ajoute le pattern à un profil webfilter (catégorie blocked-urls) appliqué aux policies sortantes. Réversible. Nécessite un profil UTM webfilter actif."
+        "label_en": "Block a URL",
+        "description": "Ajoute le pattern à un profil webfilter (catégorie blocked-urls) appliqué aux policies sortantes. Réversible. Nécessite un profil UTM webfilter actif.",
+        "description_en": "Adds the pattern to a webfilter profile (blocked-urls category) applied to the outbound policies. Reversible. Requires an active UTM webfilter profile."
       }
     ]
   },

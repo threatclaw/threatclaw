@@ -20,75 +20,97 @@
     "url": {
       "type": "string",
       "description": "URL du Wazuh Manager",
+      "description_en": "Wazuh Manager URL",
       "placeholder": "https://192.168.1.10:55000",
       "hint": "L'adresse de votre Wazuh Manager avec le port (55000 par défaut). Utilisez https:// sauf si vous avez désactivé TLS.",
+      "hint_en": "The address of your Wazuh Manager with port (55000 by default). Use https:// unless you have disabled TLS.",
       "required": true
     },
     "username": {
       "type": "string",
       "description": "Utilisateur API Wazuh",
+      "description_en": "Wazuh API user",
       "placeholder": "wazuh",
       "hint": "L'utilisateur par défaut est 'wazuh'. Vous pouvez créer un utilisateur dédié dans Wazuh > Security.",
+      "hint_en": "The default user is 'wazuh'. You can create a dedicated user in Wazuh > Security.",
       "default": "wazuh",
       "required": true
     },
     "password": {
       "type": "password",
       "description": "Mot de passe API Wazuh",
+      "description_en": "Wazuh API password",
       "hint": "Le mot de passe par défaut est 'wazuh'. Changez-le en production !",
+      "hint_en": "The default password is 'wazuh'. Change it in production!",
       "required": true
     },
     "no_tls_verify": {
       "type": "boolean",
       "description": "Ignorer le certificat TLS",
+      "description_en": "Skip the TLS certificate",
       "hint": "Activez cette option si Wazuh utilise un certificat auto-signé (cas par défaut). En production avec un vrai certificat, désactivez-la.",
+      "hint_en": "Enable this option if Wazuh uses a self-signed certificate (the default case). In production with a real certificate, disable it.",
       "default": true
     },
     "indexer_url": {
       "type": "string",
       "description": "URL de l'indexer OpenSearch (alertes)",
+      "description_en": "OpenSearch indexer URL (alerts)",
       "placeholder": "https://192.168.1.10:9200",
       "hint": "L'adresse de votre Wazuh Indexer (OpenSearch). Sans cette URL, seuls les agents seront importés. Les alertes de sécurité (findings) nécessitent l'accès à l'indexer.",
+      "hint_en": "The address of your Wazuh Indexer (OpenSearch). Without this URL, only agents are imported. Security alerts (findings) require access to the indexer.",
       "required": false
     },
     "indexer_username": {
       "type": "string",
       "description": "Utilisateur indexer",
+      "description_en": "Indexer user",
       "placeholder": "admin",
       "hint": "L'utilisateur par défaut de l'indexer OpenSearch est 'admin'.",
+      "hint_en": "The default user of the OpenSearch indexer is 'admin'.",
       "default": "admin",
       "required": false
     },
     "indexer_password": {
       "type": "password",
       "description": "Mot de passe indexer",
+      "description_en": "Indexer password",
       "hint": "Le mot de passe par défaut est 'admin'. Changez-le en production.",
+      "hint_en": "The default password is 'admin'. Change it in production.",
       "required": false
     },
     "max_alerts": {
       "type": "number",
       "description": "Taille maximum du batch par cycle",
+      "description_en": "Maximum batch size per cycle",
       "hint": "Limite le nombre d'alertes récupérées à chaque cycle de synchronisation. 500 par défaut. Si votre déploiement génère plus de 500 alertes en 5 minutes, le curseur reprendra automatiquement au cycle suivant (rien n'est perdu).",
+      "hint_en": "Limits the number of alerts fetched on each synchronization cycle. 500 by default. If your deployment generates more than 500 alerts in 5 minutes, the cursor automatically resumes on the next cycle (nothing is lost).",
       "default": 500
     },
     "min_level": {
       "type": "number",
       "description": "Niveau Wazuh minimum ingéré",
+      "description_en": "Minimum Wazuh level ingested",
       "hint": "Wazuh attribue un niveau 0-15 à chaque alerte. 7 par défaut filtre les événements informationnels (sessions ouvertes/fermées normales, etc.) tout en gardant les intrusions, brute force et anomalies. Baissez à 3-5 pour plus de verbosité, montez à 10 pour ne voir que HIGH+.",
+      "hint_en": "Wazuh assigns a level of 0-15 to each alert. 7 by default filters out informational events (normal sessions opened/closed, etc.) while keeping intrusions, brute force and anomalies. Lower to 3-5 for more verbosity, raise to 10 to see only HIGH+.",
       "default": 7
     },
     "skip_rule_ids": {
       "type": "string",
       "description": "IDs de règles à ignorer (CSV)",
+      "description_en": "Rule IDs to ignore (CSV)",
       "placeholder": "1234,5678",
       "hint": "Liste d'identifiants de règles Wazuh à ignorer complètement, séparés par virgules. Utilisez pour couper le bruit spécifique à votre environnement.",
+      "hint_en": "List of Wazuh rule IDs to ignore entirely, separated by commas. Use it to cut noise specific to your environment.",
       "required": false
     },
     "skip_if_log_contains": {
       "type": "string",
       "description": "Filtre conditionnel (JSON)",
+      "description_en": "Conditional filter (JSON)",
       "placeholder": "{\"5104\": \"veth\"}",
       "hint": "Skip une règle SI son full_log contient un motif. Format JSON: {\"rule_id\": \"motif\"}. Par défaut ThreatClaw silence déjà 5104 (veth Docker) et 80710 (auditd veth) — ajoutez ici vos règles custom.",
+      "hint_en": "Skip a rule IF its full_log contains a pattern. JSON format: {\"rule_id\": \"pattern\"}. By default ThreatClaw already silences 5104 (Docker veth) and 80710 (auditd veth) — add your custom rules here.",
       "required": false
     }
   },

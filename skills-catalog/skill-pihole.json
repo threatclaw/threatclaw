@@ -18,14 +18,18 @@
     "pihole_url": {
       "type": "string",
       "description": "URL de Pi-hole",
+      "description_en": "Pi-hole URL",
       "placeholder": "http://192.168.1.1",
       "hint": "L'adresse de votre Pi-hole (sans /admin). Utilisez http:// sauf si vous avez configuré HTTPS.",
+      "hint_en": "The address of your Pi-hole (without /admin). Use http:// unless you have configured HTTPS.",
       "required": true
     },
     "pihole_password": {
       "type": "password",
       "description": "Mot de passe admin Pi-hole",
+      "description_en": "Pi-hole admin password",
       "hint": "Le mot de passe configuré dans Pi-hole. Pour Pi-hole v6, il est généré au premier lancement (visible dans les logs Docker).",
+      "hint_en": "The password configured in Pi-hole. For Pi-hole v6, it is generated on first launch (visible in the Docker logs).",
       "required": true
     }
   },

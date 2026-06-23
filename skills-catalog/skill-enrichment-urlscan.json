@@ -20,8 +20,10 @@
         "urlscan_api_key": {
             "type": "password",
             "description": "Cle API URLScan.io (optionnelle pour les lookups, requise pour lancer des scans)",
+            "description_en": "URLScan.io API key (optional for lookups, required to launch scans)",
             "required": false,
             "hint": "Optionnel pour consulter les resultats existants. Creez un compte gratuit sur urlscan.io pour lancer vos propres scans.",
+            "hint_en": "Optional to browse existing results. Create a free account at urlscan.io to launch your own scans.",
             "placeholder": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
         }
     },
