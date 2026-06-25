@@ -155,6 +155,7 @@ mod tests {
                 org: String::new(),
             },
             tier: LicenseTier::ActionPack,
+            assets_limit: None,
             skills: vec!["skill-opnsense-actions".into()],
             site_fingerprint: None,
             issued_at: 0,

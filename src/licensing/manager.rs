@@ -257,8 +257,8 @@ impl LicenseManager {
     /// over-quota banner kicks in past a 7-day grace.
     ///
     /// Resolution order:
-    /// 1. The most recent active cert on disk → tier + assets_limit
-    ///    derived from `LicenseTier::assets_limit`.
+    /// 1. The most recent active cert on disk → `cert.assets_limit` if set,
+    ///    else derived from `LicenseTier::assets_limit`.
     /// 2. No active cert → `Free` tier with 50 assets.
     pub async fn billing_status(&self, current_count: u32) -> BillingStatus {
         const FREE_ASSETS: u32 = 50;
@@ -266,7 +266,7 @@ impl LicenseManager {
         let now = now_secs();
 
         // Pick the longest-valid cert if multiple are installed.
-        let mut chosen: Option<(LicenseTier, u64, GraceState)> = None;
+        let mut chosen: Option<(LicenseTier, Option<u32>, u64, GraceState)> = None;
         for entry in &inner.state.licenses {
             if let Ok(Some(encoded)) = storage::read_cert(&entry.license_key) {
                 if let Ok(signed) = SignedLicense::decode(&encoded) {
@@ -278,10 +278,15 @@ impl LicenseManager {
                             | GraceState::InGrace { .. }
                     );
                     if active {
-                        let cand = (signed.cert.tier, signed.cert.expires_at, grace);
+                        let cand = (
+                            signed.cert.tier,
+                            signed.cert.assets_limit,
+                            signed.cert.expires_at,
+                            grace,
+                        );
                         match chosen {
                             None => chosen = Some(cand),
-                            Some(ref c) if cand.1 > c.1 => chosen = Some(cand),
+                            Some(ref c) if cand.2 > c.2 => chosen = Some(cand),
                             _ => {}
                         }
                     }
@@ -289,8 +294,9 @@ impl LicenseManager {
             }
         }
 
-        let (tier, expires_at, _grace) = chosen.unwrap_or((
+        let (tier, cert_assets_limit, expires_at, _grace) = chosen.unwrap_or((
             LicenseTier::Trial, // sentinel; overridden by has_cert below
+            None,
             0,
             GraceState::Lapsed,
         ));
@@ -304,8 +310,11 @@ impl LicenseManager {
             LicenseTier::Trial
         };
 
+        // Prefer the cert's explicit numeric cap (usage-based pricing); fall
+        // back to the tier-derived default for legacy v:1 certs that predate
+        // the field, or unlimited (None) for Enterprise/MSP.
         let assets_limit = if has_cert {
-            effective_tier.assets_limit()
+            cert_assets_limit.or_else(|| effective_tier.assets_limit())
         } else {
             Some(FREE_ASSETS)
         };

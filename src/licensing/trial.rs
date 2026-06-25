@@ -82,6 +82,7 @@ mod tests {
                 org: String::new(),
             },
             tier,
+            assets_limit: None,
             skills: vec!["skill-velociraptor-actions".into()],
             site_fingerprint: None,
             issued_at: 0,

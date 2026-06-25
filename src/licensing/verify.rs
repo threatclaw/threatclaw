@@ -79,6 +79,7 @@ mod tests {
                 org: String::new(),
             },
             tier: LicenseTier::Individual,
+            assets_limit: None,
             skills: vec!["skill-test".into()],
             site_fingerprint: None,
             issued_at: 0,

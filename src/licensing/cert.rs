@@ -115,6 +115,13 @@ pub struct LicenseCert {
     pub licensee: Licensee,
     /// Commercial tier (display only).
     pub tier: LicenseTier,
+    /// Hard cap on monitored assets for this cert. Read in priority by
+    /// `LicenseManager::billing_status`; `None` falls back to the
+    /// `tier`-derived cap (legacy `v:1` certs that predate this field) or
+    /// unlimited (Enterprise/MSP). Lets the issuer set an arbitrary per-cert
+    /// cap (usage-based pricing) instead of the tier default.
+    #[serde(default)]
+    pub assets_limit: Option<u32>,
     /// Skill IDs unlocked by this cert. For MSP/Enterprise tiers this is
     /// typically `["*"]` (wildcard, all premium skills).
     pub skills: Vec<String>,
@@ -267,6 +274,7 @@ mod tests {
                 org: "Example SARL".into(),
             },
             tier: LicenseTier::ActionPack,
+            assets_limit: None,
             skills: vec!["skill-opnsense-actions".into()],
             site_fingerprint: None,
             issued_at: 1_715_000_000,
@@ -288,6 +296,26 @@ mod tests {
         let mut c = sample_cert();
         c.skills = vec!["*".into()];
         assert!(c.covers_skill("skill-anything"));
+    }
+
+    #[test]
+    fn assets_limit_defaults_to_none_for_legacy_certs() {
+        // A v:1 cert minted before this field existed must still deserialize
+        // (serde default) so the manager falls back to the tier-derived cap.
+        let legacy = r#"{"v":1,"licensee":{"id":"i","email":"e","org":"o"},"tier":"starter","skills":["*"],"issued_at":0,"expires_at":1}"#;
+        let cert: LicenseCert = serde_json::from_str(legacy).unwrap();
+        assert_eq!(cert.assets_limit, None);
+    }
+
+    #[test]
+    fn assets_limit_read_from_cert_when_present() {
+        // An arbitrary per-cert cap (usage-based pricing) round-trips intact.
+        let with_cap = r#"{"v":1,"licensee":{"id":"i","email":"e","org":"o"},"tier":"starter","assets_limit":327,"skills":["*"],"issued_at":0,"expires_at":1}"#;
+        let cert: LicenseCert = serde_json::from_str(with_cap).unwrap();
+        assert_eq!(cert.assets_limit, Some(327));
+        let json = serde_json::to_string(&cert).unwrap();
+        let back: LicenseCert = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.assets_limit, Some(327));
     }
 
     #[test]
