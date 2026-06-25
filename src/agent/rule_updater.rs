@@ -19,6 +19,11 @@ use std::time::Duration;
 const DEFAULT_WORKER_BASE: &str = "https://license.threatclaw.io";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
+// Where the last successfully-applied pack version is persisted, so the updater
+// skips a download when already current — across restarts too.
+const VERSION_NS: &str = "_sigma_rules";
+const VERSION_KEY: &str = "managed_version";
+
 /// Resolved configuration for one update run.
 pub struct RuleUpdateConfig {
     pub worker_base: String,
@@ -109,13 +114,13 @@ fn count_rule_files(dir: &Path) -> usize {
     count
 }
 
-/// Run one update cycle: check the published version, and if it differs from
-/// `last_version`, download + extract the Sigma pack and refresh the engine.
-/// Network failures return `Err` and leave the running rules untouched.
+/// Run one update cycle: check the published version against the last applied
+/// one (persisted in a setting), and if it changed, download + extract the
+/// Sigma pack and refresh the engine. Network failures return `Err` and leave
+/// the running rules untouched.
 pub async fn run_update_cycle(
     store: &dyn crate::db::Database,
     cfg: &RuleUpdateConfig,
-    last_version: Option<&str>,
 ) -> Result<UpdateOutcome, String> {
     let client = reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
@@ -138,7 +143,13 @@ pub async fn run_update_cycle(
         .map_err(|e| format!("manifest body: {e}"))?;
     let version = parse_manifest_version(&manifest_body)
         .ok_or_else(|| "manifest has no version".to_string())?;
-    if Some(version.as_str()) == last_version {
+    let last_version = store
+        .get_setting(VERSION_NS, VERSION_KEY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    if last_version.as_deref() == Some(version.as_str()) {
         return Ok(UpdateOutcome::UpToDate);
     }
 
@@ -161,6 +172,11 @@ pub async fn run_update_cycle(
     // 4. Apply through the existing pipeline (disk → DB upsert → recompile).
     crate::agent::sigma_file_loader::sync_rules_from_disk(store, &cfg.rules_dir).await;
     crate::agent::sigma_engine::reload(store).await;
+
+    // Remember the applied version so the next cycle no-ops until it changes.
+    let _ = store
+        .set_setting(VERSION_NS, VERSION_KEY, &serde_json::json!(version))
+        .await;
 
     Ok(UpdateOutcome::Applied { version, rules: n })
 }

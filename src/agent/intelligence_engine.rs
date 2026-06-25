@@ -3527,6 +3527,9 @@ pub fn spawn_intelligence_ticker(
         // 24h later — a fresh install must surface vulnerabilities promptly, not on
         // the second day.
         let mut last_daily_sync = chrono::Utc::now() - chrono::Duration::hours(24);
+        // Support-plan rule auto-update. Seeded 6h in the past so it runs on the
+        // first cycle after boot (fresh rules on start), then every 6h.
+        let mut last_rule_update = chrono::Utc::now() - chrono::Duration::hours(6);
         // Phase G4: continuous investigation monitoring (every ~15 min = 3 × 5min cycles)
         let mut last_investigation_check = chrono::Utc::now();
         let mut cycle_count: u64 = 0;
@@ -3568,6 +3571,27 @@ pub fn spawn_intelligence_ticker(
                     // Daily OS posture scan (end-of-life detection)
                     crate::enrichment::os_posture::scan_all_assets_eol(store_resync).await;
                 });
+            }
+
+            // Support-plan Sigma rule auto-update (6-hourly). No-op unless a
+            // support key is configured (TC_SUPPORT_KEY); a fetch failure leaves
+            // the running rules untouched. Own task so it never blocks the cycle.
+            if (now - last_rule_update).num_hours() >= 6 {
+                last_rule_update = now;
+                if let Some(cfg) = crate::agent::rule_updater::RuleUpdateConfig::from_env() {
+                    let store_rules = store.clone();
+                    tokio::spawn(async move {
+                        match crate::agent::rule_updater::run_update_cycle(
+                            store_rules.as_ref(),
+                            &cfg,
+                        )
+                        .await
+                        {
+                            Ok(outcome) => tracing::info!("SIGMA UPDATE: {outcome:?}"),
+                            Err(e) => tracing::warn!("SIGMA UPDATE: {e}"),
+                        }
+                    });
+                }
             }
 
             // Run the cycle in its own task so a panic anywhere inside it (any
