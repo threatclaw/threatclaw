@@ -179,6 +179,33 @@ impl Inner {
     }
 }
 
+/// Resolve the `(assets_limit, tier label)` surfaced by the billing widget.
+///
+/// Pure so it can be unit-tested without disk certs or env. `beta_free`
+/// (TC_BETA_FREE) makes every instance unlimited and labelled "Beta" — the
+/// public beta gives the agent away for free; the cap is reintroduced at GA by
+/// unsetting the flag. Otherwise: a cert's explicit `assets_limit` wins, else
+/// the tier-derived cap; with no cert, the free cap. Advisory only.
+fn billing_caps(
+    beta_free: bool,
+    has_cert: bool,
+    cert_assets_limit: Option<u32>,
+    effective_tier: LicenseTier,
+    free_cap: u32,
+) -> (Option<u32>, String) {
+    if beta_free {
+        return (None, "Beta".to_string());
+    }
+    if has_cert {
+        (
+            cert_assets_limit.or_else(|| effective_tier.assets_limit()),
+            effective_tier.display_name().to_string(),
+        )
+    } else {
+        (Some(free_cap), "Free".to_string())
+    }
+}
+
 impl LicenseManager {
     /// Constructor + initial state load. Always succeeds; on disk errors
     /// the manager comes up with empty state and logs a warning. Reads
@@ -310,20 +337,18 @@ impl LicenseManager {
             LicenseTier::Trial
         };
 
-        // Prefer the cert's explicit numeric cap (usage-based pricing); fall
-        // back to the tier-derived default for legacy v:1 certs that predate
-        // the field, or unlimited (None) for Enterprise/MSP.
-        let assets_limit = if has_cert {
-            cert_assets_limit.or_else(|| effective_tier.assets_limit())
-        } else {
-            Some(FREE_ASSETS)
-        };
-
-        let tier_name = if has_cert {
-            effective_tier.display_name().to_string()
-        } else {
-            "Free".to_string()
-        };
+        // Beta-free launch: an opt-in env flag makes every instance unlimited
+        // and labelled "Beta" (the public beta gives the agent away). Default
+        // off → unchanged behaviour. The per-cert cap (usage-based pricing) is
+        // reintroduced at GA simply by unsetting the flag. Advisory only.
+        let beta_free = std::env::var("TC_BETA_FREE")
+            .map(|v| {
+                let v = v.trim();
+                v == "1" || v.eq_ignore_ascii_case("true")
+            })
+            .unwrap_or(false);
+        let (assets_limit, tier_name) =
+            billing_caps(beta_free, has_cert, cert_assets_limit, effective_tier, FREE_ASSETS);
 
         // Status decision: ok / warn (≤10 left) / over (current > limit).
         let status = match assets_limit {
@@ -735,6 +760,35 @@ mod tests {
         // exercise the function and assert it returns *something* sane.
         let h = read_hostname();
         assert!(!h.is_empty());
+    }
+
+    #[test]
+    fn billing_caps_beta_free_is_unlimited_and_labelled() {
+        // Beta wins regardless of cert/tier.
+        let (cap, name) = billing_caps(true, true, Some(200), LicenseTier::Pro, 50);
+        assert_eq!(cap, None);
+        assert_eq!(name, "Beta");
+        let (cap, name) = billing_caps(true, false, None, LicenseTier::Trial, 50);
+        assert_eq!(cap, None);
+        assert_eq!(name, "Beta");
+    }
+
+    #[test]
+    fn billing_caps_cert_limit_then_tier_then_free() {
+        // Explicit per-cert cap wins.
+        assert_eq!(
+            billing_caps(false, true, Some(327), LicenseTier::Pro, 50).0,
+            Some(327)
+        );
+        // No explicit cap → tier-derived (Pro = 600).
+        assert_eq!(
+            billing_caps(false, true, None, LicenseTier::Pro, 50).0,
+            Some(600)
+        );
+        // No cert → free cap + "Free".
+        let (cap, name) = billing_caps(false, false, None, LicenseTier::Trial, 50);
+        assert_eq!(cap, Some(50));
+        assert_eq!(name, "Free");
     }
 
     #[tokio::test]
