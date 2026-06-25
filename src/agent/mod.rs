@@ -85,6 +85,7 @@ pub mod risk_aggregator;
 mod router;
 pub mod routine;
 pub mod routine_engine;
+pub mod rule_updater;
 pub(crate) mod scheduler;
 mod self_repair;
 pub mod session;
