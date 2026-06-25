@@ -58,6 +58,10 @@ services:
       RUST_LOG: info
       TC_PERMISSION_LEVEL: ${TC_PERMISSION_LEVEL:-ALERT_ONLY}
       TC_INSTANCE_NAME: ${TC_INSTANCE_NAME:-threatclaw}
+      # Public beta: the agent is free and unlimited (no asset cap). Surfaces as
+      # "Beta — gratuit, illimité" on the billing/license pages. Unset at GA to
+      # re-enable per-asset caps.
+      TC_BETA_FREE: "${TC_BETA_FREE:-1}"
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
