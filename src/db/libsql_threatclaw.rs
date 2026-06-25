@@ -252,6 +252,7 @@ impl ThreatClawStore for LibSqlBackend {
         _author: Option<&str>,
         _rule_yaml: &str,
         _detection_json: &serde_json::Value,
+        _disposition: Option<&str>,
     ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }

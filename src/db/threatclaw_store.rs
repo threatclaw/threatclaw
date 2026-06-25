@@ -1165,6 +1165,8 @@ pub trait ThreatClawStore: Send + Sync {
         author: Option<&str>,
         rule_yaml: &str,
         detection_json: &serde_json::Value,
+        // Initial disposition applied ON INSERT only (None → DB default 'detect').
+        disposition: Option<&str>,
     ) -> Result<(), DatabaseError>;
 
     // Graph operations (Apache AGE Cypher queries)

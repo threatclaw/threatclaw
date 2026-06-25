@@ -39,6 +39,12 @@ struct RuleFile {
     tags: Vec<String>,
     #[serde(default)]
     author: Option<String>,
+    // Initial promotion disposition (monitor/detect/block). Applied ON INSERT
+    // only — operator promotions are preserved on re-sync. pySigma-converted
+    // SigmaHQ rules ship as `monitor` (shadow); proprietary rules omit it and
+    // default to `detect`.
+    #[serde(default)]
+    disposition: Option<String>,
     // The following are accepted but not stored on the DB row yet.
     // They flow into rule_yaml verbatim for documentation purposes.
     #[serde(default)]
@@ -153,6 +159,7 @@ async fn sync_one_file(
             rule.author.as_deref(),
             &raw,
             &detection_json,
+            rule.disposition.as_deref(),
         )
         .await;
 

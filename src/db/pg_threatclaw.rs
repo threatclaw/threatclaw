@@ -2073,19 +2073,23 @@ impl ThreatClawStore for PgBackend {
         author: Option<&str>,
         rule_yaml: &str,
         detection_json: &serde_json::Value,
+        disposition: Option<&str>,
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let tags_vec: Vec<String> = tags.to_vec();
         // INSERT with the file content; on conflict, overwrite only the
         // content-derived columns and leave the operator-managed ones
-        // (enabled, disposition, tier, owner, promoted_at) intact.
+        // (enabled, disposition, tier, owner, promoted_at) intact. The initial
+        // `disposition` ($13) is applied ON INSERT only — it's deliberately
+        // absent from the DO UPDATE SET so an operator's promotion survives a
+        // re-sync. None → DB default 'detect'.
         conn.execute(
             "INSERT INTO sigma_rules \
                 (id, title, description, level, status, \
                  logsource_category, logsource_product, logsource_service, \
-                 tags, author, rule_yaml, detection_json, enabled) \
+                 tags, author, rule_yaml, detection_json, enabled, disposition) \
              VALUES ($1, $2, $3, $4, COALESCE($5, 'experimental'), \
-                     $6, $7, $8, $9, $10, $11, $12, true) \
+                     $6, $7, $8, $9, $10, $11, $12, true, COALESCE($13, 'detect')) \
              ON CONFLICT (id) DO UPDATE SET \
                 title = EXCLUDED.title, \
                 description = EXCLUDED.description, \
@@ -2112,6 +2116,7 @@ impl ThreatClawStore for PgBackend {
                 &author,
                 &rule_yaml,
                 detection_json,
+                &disposition,
             ],
         )
         .await
