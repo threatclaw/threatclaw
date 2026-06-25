@@ -131,13 +131,28 @@ export default function BillingPage() {
 
   const billable = data?.billable ?? 0;
 
+  // Beta-free model: the agent is free and unlimited for everyone (the backend
+  // reports tier "Beta"). Present it as such — no paid tier, no upgrade prompt —
+  // instead of mislabelling the asset count into a paid tier by size.
+  const isBetaFree = (billing?.tier || "").toLowerCase() === "beta";
+  const BETA_TIER: Tier = {
+    id: "free",
+    labelFr: "Beta — gratuit",
+    labelEn: "Beta — free",
+    min: 0,
+    max: null,
+    monthly: null,
+    yearly: null,
+    color: "#30a050",
+  };
+
   // Tier resolution — prefer the cert-driven tier from the backend.
   // Falls back to "what tier would this count fit into" when no cert
   // is present (Free instance).
   const certTierId = (billing?.tier || "Free").toLowerCase() as Tier["id"];
-  const tier =
-    TIERS.find((t) => t.id === certTierId) ??
-    tierForCount(billable);
+  const tier = isBetaFree
+    ? BETA_TIER
+    : TIERS.find((t) => t.id === certTierId) ?? tierForCount(billable);
 
   const limit = billing?.assets_limit ?? tier.max;
   const tierProgress =
@@ -162,15 +177,21 @@ export default function BillingPage() {
     >
       <div style={{ marginBottom: "20px" }}>
         <h1 style={{ fontSize: "16px", fontWeight: 800, marginBottom: "4px" }}>
-          {fr ? "Utilisation — quota d'assets" : "Usage — asset quota"}
+          {fr ? "Utilisation — assets surveillés" : "Usage — monitored assets"}
         </h1>
         <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginBottom: "8px" }}>
-          {fr
-            ? "Page de visualisation du quota — pas de paiement ici. ThreatClaw facture par nombre de devices internes activement surveillés. Toutes les fonctionnalités (HITL, Investigation Graphs, Threat Map, rapports NIS2) sont incluses dans tous les tiers."
-            : "Quota visualisation page — no payment here. ThreatClaw bills by the count of actively-monitored internal devices. Every feature (HITL, Investigation Graphs, Threat Map, NIS2 reports) is included in every tier."}
+          {isBetaFree
+            ? fr
+              ? "ThreatClaw est gratuit et illimité pendant la beta publique : toutes les fonctionnalités, sans limite d'assets. Ce compteur sert d'indicateur — et de base au tarif Premium (support + règles en temps réel), facturé par asset surveillé."
+              : "ThreatClaw is free and unlimited during the public beta: every feature, no asset cap. This count is informational — and the basis for Premium pricing (support + real-time rules), billed per monitored asset."
+            : fr
+              ? "Page de visualisation du quota — pas de paiement ici. ThreatClaw facture par nombre de devices internes activement surveillés. Toutes les fonctionnalités (HITL, Investigation Graphs, Threat Map, rapports NIS2) sont incluses."
+              : "Quota visualisation page — no payment here. ThreatClaw bills by the count of actively-monitored internal devices. Every feature (HITL, Investigation Graphs, Threat Map, NIS2 reports) is included."}
         </div>
         <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
-          {fr ? "Pour souscrire ou upgrader →" : "To subscribe or upgrade →"}{" "}
+          {isBetaFree
+            ? fr ? "Support prioritaire & règles en temps réel (Premium) →" : "Priority support & real-time rules (Premium) →"
+            : fr ? "Pour souscrire ou upgrader →" : "To subscribe or upgrade →"}{" "}
           <a
             href="https://threatclaw.io/fr/pricing"
             target="_blank"
@@ -226,7 +247,7 @@ export default function BillingPage() {
             {billable}
           </span>
           <span style={{ fontSize: "13px", color: "var(--tc-text-muted)" }}>
-            {fr ? "assets facturables" : "billable assets"}
+            {isBetaFree ? (fr ? "assets surveillés" : "monitored assets") : fr ? "assets facturables" : "billable assets"}
           </span>
           {limit != null && (
             <span style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginLeft: "auto" }}>
@@ -398,7 +419,8 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* ── All tiers reference ── */}
+      {/* ── All tiers reference — hidden in the beta-free model ── */}
+      {!isBetaFree && (
       <div
         style={{
           background: "var(--tc-bg)",
@@ -456,6 +478,7 @@ export default function BillingPage() {
           })}
         </div>
       </div>
+      )}
 
       <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>
         {lastFetch && (
@@ -473,9 +496,13 @@ export default function BillingPage() {
         <strong>{fr ? "Vous avez reçu une clé de licence ?" : "You received a license key?"}</strong>{" "}
         {fr ? "Collez-la sur" : "Paste it on"}{" "}
         <Link href="/licensing" style={{ color: "var(--tc-blue)" }}>/licensing</Link>{" "}
-        {fr
-          ? "pour activer votre tier (Starter / Pro / Business). Cette page-ci ne sert qu'à visualiser le quota."
-          : "to activate your tier (Starter / Pro / Business). This page is read-only."}
+        {isBetaFree
+          ? fr
+            ? "pour activer votre plan. Cette page-ci ne sert qu'à visualiser le nombre d'assets surveillés."
+            : "to activate your plan. This page only visualizes the monitored-asset count."
+          : fr
+            ? "pour activer votre tier. Cette page-ci ne sert qu'à visualiser le quota."
+            : "to activate your tier. This page is read-only."}
       </div>
 
       <div style={{ marginTop: "12px", fontSize: "10px", color: "var(--tc-text-muted)" }}>

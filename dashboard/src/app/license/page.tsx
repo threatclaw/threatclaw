@@ -95,6 +95,7 @@ interface AuthMe {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 const TIER_LABELS: Record<string, { fr: string; en: string }> = {
+  beta: { fr: "Beta — gratuit", en: "Beta — free" },
   free: { fr: "Free", en: "Free" },
   trial: { fr: "Essai 60 jours", en: "60-day trial" },
   starter: { fr: "Starter", en: "Starter" },
@@ -342,6 +343,8 @@ export default function LicensePage() {
   const assetsLimit = billing?.billing?.assets_limit ?? null;
   const tierFromBilling = billing?.billing?.tier ?? "free";
   const tier = primary?.tier ?? tierFromBilling;
+  // Beta-free model: the agent is free and unlimited (backend reports "Beta").
+  const isBetaFree = tier.toLowerCase() === "beta";
   const ratio = assetsLimit && assetsLimit > 0 ? Math.min(1, billable / assetsLimit) : 0;
   const ratioPct = ratio * 100;
   const overLimit = billing?.billing?.state?.kind === "over_limit";
@@ -593,12 +596,14 @@ export default function LicensePage() {
       {!hasLicense && !loading && (
         <section style={cardStyle()}>
           <h2 style={sectionTitle()}>
-            <KeyRound size={14} /> {fr ? "Pas encore de licence ?" : "No license yet?"}
+            <KeyRound size={14} /> {isBetaFree ? (fr ? "Une clé Premium ?" : "A Premium key?") : fr ? "Pas encore de licence ?" : "No license yet?"}
           </h2>
           <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", marginBottom: "12px" }}>
             {fr ? (
               <>
-                Achète ton plan sur{" "}
+                {isBetaFree
+                  ? "ThreatClaw est gratuit et illimité pendant la beta. Pour le support et la mise à jour des règles en temps réel, passez Premium sur "
+                  : "Achète ton plan sur "}
                 <a
                   href="https://threatclaw.io/fr/pricing"
                   target="_blank"
@@ -607,11 +612,13 @@ export default function LicensePage() {
                 >
                   threatclaw.io/pricing
                 </a>{" "}
-                puis colle la clé reçue par email ci-dessous.
+                {isBetaFree ? "puis collez la clé reçue par email ci-dessous." : "puis colle la clé reçue par email ci-dessous."}
               </>
             ) : (
               <>
-                Buy a plan on{" "}
+                {isBetaFree
+                  ? "ThreatClaw is free and unlimited during the beta. For support and real-time rule updates, go Premium on "
+                  : "Buy a plan on "}
                 <a
                   href="https://threatclaw.io/en/pricing"
                   target="_blank"
