@@ -1398,6 +1398,19 @@ pub fn match_rule_for_tests(
     match_rule(rule, log, log_tag)
 }
 
+/// Test/CI access to the SIGMA HEALTH field-resolution oracle. Returns
+/// `(rule_id, unresolved_fields)` for every rule that resolved NONE of its
+/// fields across the sampled logs of its own logsource — i.e. silently dead.
+pub fn detect_unresolved_field_rules_for_tests(
+    rules: &[CompiledRule],
+    logs: &[crate::db::threatclaw_store::LogRecord],
+) -> Vec<(String, Vec<String>)> {
+    detect_unresolved_field_rules(rules, logs)
+        .into_iter()
+        .map(|w| (w.rule_id, w.fields))
+        .collect()
+}
+
 async fn load_active_exceptions(store: &dyn crate::db::Database) -> Vec<ActiveException> {
     match store.load_active_sigma_exceptions().await {
         Ok(rows) => rows
