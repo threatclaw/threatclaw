@@ -29,6 +29,9 @@ pub struct RuleUpdateConfig {
     pub worker_base: String,
     pub support_key: String,
     pub rules_dir: PathBuf,
+    /// This server's stable install UUID — sent so the worker can bind the
+    /// support plan to one server (anti-sharing seat). Empty if unreadable.
+    pub install_id: String,
 }
 
 impl RuleUpdateConfig {
@@ -44,10 +47,13 @@ impl RuleUpdateConfig {
         let rules_dir = PathBuf::from(
             std::env::var("TC_SIGMA_RULES_DIR").unwrap_or_else(|_| "/app/rules".to_string()),
         );
+        let install_id =
+            crate::licensing::storage::load_or_create_install_id().unwrap_or_default();
         Some(Self {
             worker_base: worker_base.trim_end_matches('/').to_string(),
             support_key,
             rules_dir,
+            install_id,
         })
     }
 
@@ -131,6 +137,7 @@ pub async fn run_update_cycle(
     let manifest = client
         .get(cfg.manifest_url())
         .bearer_auth(&cfg.support_key)
+        .header("X-Install-Id", &cfg.install_id)
         .send()
         .await
         .map_err(|e| format!("manifest fetch: {e}"))?;
@@ -157,6 +164,7 @@ pub async fn run_update_cycle(
     let dl = client
         .get(cfg.download_url())
         .bearer_auth(&cfg.support_key)
+        .header("X-Install-Id", &cfg.install_id)
         .send()
         .await
         .map_err(|e| format!("pack fetch: {e}"))?;
@@ -249,6 +257,7 @@ mod tests {
             worker_base: "https://license.threatclaw.io".to_string(),
             support_key: "TC-XXXX".to_string(),
             rules_dir: PathBuf::from("/app/rules"),
+            install_id: "00000000-0000-4000-8000-000000000000".to_string(),
         };
         assert_eq!(
             cfg.manifest_url(),
