@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.56-beta] — 2026-06-26
+
+### Added
+- Public beta is free: ThreatClaw runs with no monitored-asset limit during the beta, and the billing and licence pages reflect the free-beta model.
+
+### Changed
+- Built-in heuristic detections now use generic English rule titles, so a host's name and command stay on the alert rather than appearing in the rule list.
+
 ## [1.0.55-beta] — 2026-06-23
 
 ### Added
