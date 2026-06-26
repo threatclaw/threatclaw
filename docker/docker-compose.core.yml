@@ -44,6 +44,10 @@ services:
       WASM_CHANNELS_ENABLED: "true"
       ONBOARD_COMPLETED: "true"
       RUST_LOG: info
+      # Public beta: free, unlimited assets (default). Set to 0 at GA to enforce
+      # per-asset caps. Monitoring is unaffected — this only changes how the
+      # billing/license pages present the plan.
+      TC_BETA_FREE: "${TC_BETA_FREE:-1}"
     volumes:
       - ../AGENT_SOUL.toml:/app/AGENT_SOUL.toml:ro
       - ../threatclaw.toml:/app/threatclaw.toml:ro
