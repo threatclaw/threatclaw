@@ -1565,15 +1565,19 @@ impl ThreatClawStore for PgBackend {
         username: Option<&str>,
     ) -> Result<i64, DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
-        // Ensure the rule exists (create a stub if not)
+        // Ensure the rule exists (create a stub if not). The *rule* gets a
+        // generic, instance-free title for known heuristic ids (the per-event
+        // `title` keeps the host/command for the alert below). Stops customer
+        // server names from freezing onto the rule list.
+        let rule_title = crate::db::threatclaw_store::generic_rule_title(rule_id).unwrap_or(title);
         let rule_yaml = format!(
             "title: {}\nstatus: test\nlevel: {}\ndetection:\n  condition: test",
-            title, level
+            rule_title, level
         );
         let empty_json = serde_json::json!({});
         conn.execute(
             "INSERT INTO sigma_rules (id, title, level, rule_yaml, detection_json, enabled) VALUES ($1, $2, $3, $4, $5::jsonb, true) ON CONFLICT (id) DO NOTHING",
-            &[&rule_id, &title, &level, &rule_yaml, &empty_json],
+            &[&rule_id, &rule_title, &level, &rule_yaml, &empty_json],
         ).await.map_err(query_err)?;
 
         let user_str = username.unwrap_or("");
@@ -1618,15 +1622,16 @@ impl ThreatClawStore for PgBackend {
         // dashboard's rule list and the `sigma_rule_stats` matview
         // refresh; `enabled=false` keeps it inert if the engine ever
         // tried to compile it (no detection body).
+        let rule_title = crate::db::threatclaw_store::generic_rule_title(rule_id).unwrap_or(title);
         let rule_yaml = format!(
             "title: {}\nstatus: auto-stub\nlevel: {}\ndetection:\n  condition: test",
-            title, level
+            rule_title, level
         );
         let empty_json = serde_json::json!({});
         conn.execute(
             "INSERT INTO sigma_rules (id, title, level, status, rule_yaml, detection_json, enabled) \
              VALUES ($1, $2, $3, 'auto-stub', $4, $5::jsonb, false) ON CONFLICT (id) DO NOTHING",
-            &[&rule_id, &title, &level, &rule_yaml, &empty_json],
+            &[&rule_id, &rule_title, &level, &rule_yaml, &empty_json],
         )
         .await
         .map_err(query_err)?;

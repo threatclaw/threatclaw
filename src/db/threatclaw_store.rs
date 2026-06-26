@@ -7,6 +7,49 @@ use uuid::Uuid;
 
 use super::DatabaseError;
 
+/// Generic, instance-free title for a synthetic heuristic rule id.
+///
+/// The osquery connector (and similar heuristics) call `insert_sigma_alert`
+/// with a per-event title that bakes in the hostname / command, which then
+/// freezes onto the auto-created `sigma_rules` row and surfaces the customer's
+/// server names in the rule list. A *rule* describes a detection TYPE, so its
+/// title must be generic; the per-event detail belongs to the *alert* (which
+/// also carries the hostname in its own column). Returns `None` for unknown ids
+/// so real rules and other connectors keep their caller-supplied title.
+pub fn generic_rule_title(rule_id: &str) -> Option<&'static str> {
+    // English on purpose: the detection layer is English-universal, consistent
+    // with the converted SigmaHQ rules. Localisation happens above (UI chrome,
+    // reports), not on detection titles.
+    let t = match rule_id {
+        "osquery-av-disabled" => "Antivirus disabled",
+        "osquery-dns" => "Suspicious DNS activity",
+        "osquery-exec-suspicious-path" => "Execution from a suspicious path",
+        "osquery-fim" => "Monitored file changed (FIM)",
+        "osquery-ioc-conn" => "Connection to a known IOC",
+        "osquery-malicious-dns" => "Malicious DNS resolution",
+        "osquery-no-av" => "No antivirus detected",
+        "osquery-offhours-login" => "Off-hours remote login",
+        "osquery-office-shell" => "Office application spawning a shell (kill chain)",
+        "osquery-root-ssh-key" => "SSH key added for root",
+        "osquery-sideloaded-ext" => "Sideloaded browser extension",
+        "osquery-suspicious-download" => "Download tool spawned by a shell",
+        "osquery-suspicious-port" => "Suspicious listening port",
+        "osquery-suspicious-process" => "Suspicious process detected",
+        "osquery-suspicious-shell" => "Suspicious interactive shell",
+        "osquery-suspicious-startup" => "Suspicious startup entry",
+        "osquery-suspicious-task" => "Suspicious scheduled task",
+        "osquery-uid0-nonroot" => "Non-root account with UID 0",
+        "osquery-win-audit-log-cleared" => "Windows audit log cleared",
+        "osquery-win-failed-logon-burst" => "Burst of failed Windows logons",
+        "osquery-win-group-membership-add" => "Added to a privileged Windows group",
+        "osquery-win-powershell-suspicious" => "Suspicious PowerShell",
+        "osquery-win-user-created" => "Windows account created",
+        "osquery-win-user-deleted" => "Windows account deleted",
+        _ => return None,
+    };
+    Some(t)
+}
+
 // ── Record types ──
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
