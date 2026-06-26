@@ -9,9 +9,9 @@
 //! Off by default: without `TC_SUPPORT_KEY` the agent runs its bundled-at-
 //! release rules unchanged ([`RuleUpdateConfig::from_env`] returns `None`).
 //!
-//! NOT yet wired into the intelligence loop — the periodic spawn that calls
-//! [`run_update_cycle`] is a deliberate go-live step (see
-//! `internal/PLAN_USAGE_BASED_PRICING.md`).
+//! When configured, the intelligence loop spawns [`run_update_cycle`]
+//! periodically (every ~6h) so a supported agent keeps its detection set fresh
+//! between releases.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
