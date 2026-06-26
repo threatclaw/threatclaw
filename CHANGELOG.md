@@ -10,6 +10,7 @@ Earlier `v0.x` entries below cover pre-public internal development and are kept 
 
 ### Added
 - Public beta is free: ThreatClaw runs with no monitored-asset limit during the beta, and the billing and licence pages reflect the free-beta model.
+- Manual check-for-updates button on the configuration page, so an operator can trigger an update check on demand.
 
 ### Changed
 - Built-in heuristic detections now use generic English rule titles, so a host's name and command stay on the alert rather than appearing in the rule list.
