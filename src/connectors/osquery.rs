@@ -161,7 +161,7 @@ pub async fn check_process_connections(
         if bloom.maybe_contains(&remote_lower) {
             // Bloom hit → verify and create alert
             let title = format!(
-                "Connexion suspecte: {} ({}) → {}:{}",
+                "Suspicious connection: {} ({}) → {}:{}",
                 process_name, hostname, remote_addr, remote_port
             );
             crate::connectors::log_db_write(
@@ -190,7 +190,7 @@ pub async fn check_process_connections(
         // Check for suspicious process paths
         if is_suspicious_path(process_path) {
             let title = format!(
-                "Process suspect: {} ({}) depuis {}",
+                "Suspicious process: {} ({}) from {}",
                 process_name, hostname, process_path
             );
             crate::connectors::log_db_write(
@@ -248,7 +248,7 @@ pub async fn check_dns_cache(
 
         // Check domain against Bloom filter (known malicious domains)
         if bloom.maybe_contains(&domain) {
-            let title = format!("DNS résolution suspecte: {} sur {}", domain, hostname);
+            let title = format!("Suspicious DNS resolution: {} on {}", domain, hostname);
             crate::connectors::log_db_write(
                 "osquery:insert_sigma_alert",
                 store.insert_sigma_alert(
@@ -309,7 +309,7 @@ pub async fn check_process_events(
         // Detect Office → shell (macro malware)
         if is_office_process(parent) && is_shell_process(path) {
             let title = format!(
-                "Kill chain: {} a lancé {} sur {}",
+                "Kill chain: {} spawned {} on {}",
                 parent.rsplit('/').next().unwrap_or(parent),
                 path.rsplit('/').next().unwrap_or(path),
                 hostname
@@ -332,7 +332,7 @@ pub async fn check_process_events(
         // Detect download tools (wget/curl/certutil) spawned by unexpected parents
         if is_download_tool(path) && !is_expected_download_parent(parent) {
             let title = format!(
-                "Téléchargement suspect: {} lancé par {} sur {}",
+                "Suspicious download: {} spawned by {} on {}",
                 path.rsplit('/').next().unwrap_or(path),
                 parent.rsplit('/').next().unwrap_or(parent),
                 hostname
@@ -354,7 +354,7 @@ pub async fn check_process_events(
 
         // Detect execution from suspicious paths
         if is_suspicious_path(path) && !cmdline.is_empty() {
-            let title = format!("Exécution depuis path suspect: {} sur {}", path, hostname);
+            let title = format!("Execution from suspicious path: {} on {}", path, hostname);
             crate::connectors::log_db_write(
                 "osquery:insert_sigma_alert",
                 store.insert_sigma_alert(
@@ -440,7 +440,7 @@ pub async fn check_file_events(
         }
 
         if is_critical_file(target_path) {
-            let title = format!("FIM: {} {} sur {}", target_path, action, hostname);
+            let title = format!("FIM: {} {} on {}", target_path, action, hostname);
             let severity = if is_auth_file(target_path) {
                 "critical"
             } else {
@@ -515,7 +515,7 @@ pub async fn check_listening_ports(
         // Flag high ports bound to 0.0.0.0 with suspicious port numbers
         if suspicious_ports.contains(&port) && (address == "0.0.0.0" || address == "::") {
             let title = format!(
-                "Port suspect en écoute: {}:{} ({}) sur {}",
+                "Suspicious listening port: {}:{} ({}) on {}",
                 address, port, process, hostname
             );
             crate::connectors::log_db_write(
@@ -583,7 +583,7 @@ pub async fn check_logged_in_users(
 
         if is_remote && (hour < 7 || hour > 20) {
             let title = format!(
-                "Connexion distante hors horaires: {} depuis {} sur {} ({}h UTC)",
+                "Off-hours remote login: {} from {} on {} ({}h UTC)",
                 user, host, hostname, hour
             );
             crate::connectors::log_db_write(
@@ -644,7 +644,7 @@ pub async fn check_scheduled_tasks(
 
         if is_suspicious_path(path) {
             let title = format!(
-                "Tâche planifiée suspecte: {} → {} sur {}",
+                "Suspicious scheduled task: {} → {} on {}",
                 name, path, hostname
             );
             crate::connectors::log_db_write(
@@ -719,7 +719,7 @@ pub async fn check_security_products(
 
     if has_any_av && all_disabled {
         let names: Vec<&str> = products.iter().filter_map(|p| p["name"].as_str()).collect();
-        let title = format!("Antivirus désactivé sur {}: {}", hostname, names.join(", "));
+        let title = format!("Antivirus disabled on {}: {}", hostname, names.join(", "));
         crate::connectors::log_db_write(
             "osquery:insert_sigma_alert",
             store.insert_sigma_alert(
@@ -736,7 +736,7 @@ pub async fn check_security_products(
     }
 
     if !has_any_av {
-        let title = format!("Aucun antivirus détecté sur {}", hostname);
+        let title = format!("No antivirus detected on {}", hostname);
         crate::connectors::log_db_write(
             "osquery:insert_sigma_alert",
             store.insert_sigma_alert("osquery-no-av", "high", &title, hostname, None, None),
@@ -830,7 +830,7 @@ pub async fn check_startup_items(
 
         if is_suspicious_path(path) {
             let title = format!(
-                "Startup suspect: {} → {} ({}) sur {}",
+                "Suspicious startup entry: {} → {} ({}) on {}",
                 name, path, source, hostname
             );
             crate::connectors::log_db_write(
@@ -893,7 +893,7 @@ pub async fn check_authorized_keys(
         // Alert on root authorized_keys (always suspicious if not expected)
         if key_file.contains("/root/") {
             let comment = key["comment"].as_str().unwrap_or("unknown");
-            let title = format!("Clé SSH root détectée sur {}: {}", hostname, comment);
+            let title = format!("SSH key added for root on {}: {}", hostname, comment);
             crate::connectors::log_db_write(
                 "osquery:insert_sigma_alert",
                 store.insert_sigma_alert(
@@ -933,7 +933,7 @@ pub async fn check_browser_extensions(
         // Sideloaded extension (not from official store) = suspicious
         if from_webstore == "0" || from_webstore == "false" {
             let title = format!(
-                "Extension navigateur sideloaded: {} ({}) sur {}",
+                "Sideloaded browser extension: {} ({}) on {}",
                 name, identifier, hostname
             );
             crate::connectors::log_db_write(
@@ -994,7 +994,7 @@ pub async fn check_users_groups(
 
         // User with UID 0 that isn't root = suspicious
         if uid == "0" && username != "root" {
-            let title = format!("User non-root avec UID 0: {} sur {}", username, hostname);
+            let title = format!("Non-root account with UID 0: {} on {}", username, hostname);
             crate::connectors::log_db_write(
                 "osquery:insert_sigma_alert",
                 store.insert_sigma_alert(
@@ -1013,7 +1013,7 @@ pub async fn check_users_groups(
         // User with login shell in a suspicious path
         if !shell.is_empty() && is_suspicious_path(shell) {
             let title = format!(
-                "User avec shell suspect: {} ({}) sur {}",
+                "Account with suspicious shell: {} ({}) on {}",
                 username, shell, hostname
             );
             crate::connectors::log_db_write(
@@ -1516,7 +1516,7 @@ pub async fn check_windows_security_events(
                 let target = extract_event_field(&data, &["TargetUserName"]).unwrap_or("unknown");
                 let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
                 let title = format!(
-                    "Compte utilisateur créé: {} par {} sur {}",
+                    "User account created: {} by {} on {}",
                     target, actor, hostname
                 );
                 crate::connectors::log_db_write(
@@ -1538,7 +1538,7 @@ pub async fn check_windows_security_events(
                 let target = extract_event_field(&data, &["TargetUserName"]).unwrap_or("unknown");
                 let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
                 let title = format!(
-                    "Compte utilisateur supprimé: {} par {} sur {}",
+                    "User account deleted: {} by {} on {}",
                     target, actor, hostname
                 );
                 crate::connectors::log_db_write(
@@ -1592,7 +1592,7 @@ pub async fn check_windows_security_events(
             "1102" => {
                 let actor = extract_event_field(&data, &["SubjectUserName"]).unwrap_or("unknown");
                 let title = format!(
-                    "Journal d'audit Security effacé par {} sur {}",
+                    "Security audit log cleared by {} on {}",
                     actor, hostname
                 );
                 crate::connectors::log_db_write(
@@ -1650,7 +1650,7 @@ pub async fn check_windows_security_events(
             }
             let level = if *count >= 10 { "high" } else { "medium" };
             let title = format!(
-                "Brute force candidat: {} tentatives échouées sur {} (cible {})",
+                "Brute-force candidate: {} failed attempts on {} (target {})",
                 count, hostname, target
             );
             crate::connectors::log_db_write(
@@ -1826,7 +1826,7 @@ pub async fn check_powershell_events(
         }
         let snippet: String = script.chars().take(120).collect();
         let title = format!(
-            "PowerShell suspect sur {} ({}): {}",
+            "Suspicious PowerShell on {} ({}): {}",
             hostname,
             hits.join(", "),
             snippet
@@ -1947,7 +1947,7 @@ pub async fn check_sysmon_events(
 
                 if !tags.is_empty() {
                     let title = format!(
-                        "Outil offensif détecté sur {} ({}): {} (lancé par {})",
+                        "Offensive tool detected on {} ({}): {} (spawned by {})",
                         hostname,
                         tags.join(", "),
                         image.rsplit('\\').next().unwrap_or(image),
@@ -1980,7 +1980,7 @@ pub async fn check_sysmon_events(
 
                 if target.to_lowercase().contains("lsass.exe") {
                     let title = format!(
-                        "Accès suspect à LSASS sur {} par {} (GrantedAccess={})",
+                        "Suspicious LSASS access on {} by {} (GrantedAccess={})",
                         hostname,
                         source_image.rsplit('\\').next().unwrap_or(source_image),
                         access,
