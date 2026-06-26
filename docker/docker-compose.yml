@@ -32,7 +32,7 @@ services:
   # The brain: ReAct reasoning, LLM orchestration, skill execution
   threatclaw-core:
     <<: *security-defaults
-    image: ghcr.io/threatclaw/core:latest
+    image: ghcr.io/threatclaw/core:v${TC_VERSION:-latest}
     entrypoint: ["/app/docker/entrypoint.sh"]
     expose:
       - "3000"
@@ -146,7 +146,7 @@ services:
       - SETGID
     ipc: private
     restart: unless-stopped
-    image: ghcr.io/threatclaw/dashboard:latest
+    image: ghcr.io/threatclaw/dashboard:v${TC_VERSION:-latest}
     expose:
       - "3000"
     environment:
@@ -186,7 +186,7 @@ services:
   # See ADR-039: TLS enforced for all DB connections
   threatclaw-db:
     <<: *security-defaults
-    image: ghcr.io/threatclaw/db:latest
+    image: ghcr.io/threatclaw/db:v${TC_VERSION:-latest}
     cap_add:
       - CHOWN
       - SETUID
@@ -322,7 +322,7 @@ services:
   # ── ML Engine — Behavioral Analysis ──────────────────────
   ml-engine:
     <<: *security-defaults
-    image: ghcr.io/threatclaw/ml-engine:latest
+    image: ghcr.io/threatclaw/ml-engine:v${TC_VERSION:-latest}
     # verify-full: validate the server cert chain against the mounted CA and the
     # hostname (pg cert SAN = threatclaw-db). The Rust core already does the
     # equivalent via rustls + the native trust store; libpq needs it spelled out.
