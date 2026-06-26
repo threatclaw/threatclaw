@@ -364,7 +364,10 @@ services:
   # ── Nginx Reverse Proxy (HTTPS) ────────────────────────────
   nginx:
     <<: *security-defaults
-    image: nginx:1.30.0-alpine
+    # nginx 1.30.3 + Alpine 3.23.5 (latest patch of both, official image).
+    # Staying on the Alpine 3.23 branch on purpose: nginx upstream has not moved
+    # its -alpine images to 3.24 yet (all current tags ship 3.23.x). Bump when it does.
+    image: nginx:1.30.3-alpine
     cap_add:
       - NET_BIND_SERVICE
       - CHOWN
