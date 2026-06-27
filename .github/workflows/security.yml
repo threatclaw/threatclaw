@@ -1,14 +1,18 @@
 name: Security Scan
 
+# Hard dependency-vulnerability gate. Runs on every push to main and on PRs so a
+# newly-disclosed advisory turns the build red and blocks merge/release — not just
+# the weekly scheduled scan. Ignores with rationale live in .cargo/audit.toml.
 on:
+  push:
+    branches: [main]
+  pull_request:
   schedule:
     - cron: '0 6 * * 1'  # Mondays at 06:00 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
-  security-events: write
-  issues: write
 
 jobs:
   dependency-audit:
@@ -24,17 +28,19 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
 
-      - name: Run cargo audit
-        run: |
-          cargo audit 2>&1 || true
+      # Hard gate: any RUSTSEC advisory not listed in .cargo/audit.toml fails the
+      # build. No `|| true`. Replaces the old per-package wasmtime/ring/argon2
+      # check (the global gate covers those and everything else).
+      - name: cargo audit (RUSTSEC, blocking)
+        run: cargo audit
 
-          # Fail on critical security packages
-          for pkg in wasmtime ring argon2; do
-            if cargo audit 2>&1 | grep -i "$pkg.*RUSTSEC"; then
-              echo "::error::SECURITY: CVE on $pkg"
-              exit 1
-            fi
-          done
-          echo "No critical CVEs on security packages"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-  # Upstream sync check — run locally, not in public CI
+      # Dashboard npm dependencies — fail on high/critical. Moderate and below
+      # are reported by the weekly scan but do not block.
+      - name: npm audit (dashboard, high+, blocking)
+        working-directory: dashboard
+        run: npm audit --audit-level=high
