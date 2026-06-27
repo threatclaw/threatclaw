@@ -782,11 +782,18 @@ download_configs() {
     echo -n "${db_pass}" > secrets/tc_db_password.txt
     echo -n "${auth_token}" > secrets/tc_auth_token.txt
     chmod 700 secrets
-    # 644 on files (not 600) so docker compose bind-mounted secrets are
-    # readable by the container user (UID 1000). The 700 parent dir still
-    # blocks non-root host access — only the docker daemon (root) can enter.
-    chmod 644 secrets/*.txt
-    log_info "Generated Docker secrets (secrets/)"
+    # Compose file-secrets bind-mount the host file straight into the container,
+    # so the core process (UID 1000) reads it DIRECTLY — root-only 600 would make
+    # it unreadable and the core would crash-loop. chown to that UID + 600 gives
+    # owner-only access (container reads as owner) WITHOUT being world-readable
+    # (the previous 644). 640+group won't work: the container user is only in
+    # group 1000, not the docker GID. Fall back to 644 if chown is unavailable.
+    if chown 1000:1000 secrets/*.txt 2>/dev/null; then
+      chmod 600 secrets/*.txt
+    else
+      chmod 644 secrets/*.txt
+    fi
+    log_info "Generated Docker secrets (secrets/, owner-only)"
 
     # Secrets are set BOTH in .env AND as Docker secret files.
     # Reasons:
@@ -822,8 +829,15 @@ download_configs() {
       if [ -n "$existing_pass" ]; then
         echo -n "$existing_pass" > secrets/tc_db_password.txt
         echo -n "$existing_token" > secrets/tc_auth_token.txt
-        chmod 700 secrets && chmod 600 secrets/*.txt
-        log_info "Migrated existing credentials to Docker secrets"
+        chmod 700 secrets
+        # Owner = the core UID (compose file-secrets are bind-mounted, read by
+        # UID 1000 directly). Root-owned 600 here was a latent crash-loop bug.
+        if chown 1000:1000 secrets/*.txt 2>/dev/null; then
+          chmod 600 secrets/*.txt
+        else
+          chmod 644 secrets/*.txt
+        fi
+        log_info "Migrated existing credentials to Docker secrets (owner-only)"
       fi
     fi
   fi
