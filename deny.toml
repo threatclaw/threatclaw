@@ -1,16 +1,18 @@
 [advisories]
 unmaintained = "workspace"
 yanked = "deny"
-# All advisories below are in OPTIONAL features (libsql, bedrock, import) not
+# Most advisories below are in OPTIONAL features (libsql, bedrock, import) not
 # enabled in the default production build (default = ["postgres", "html-to-markdown"]).
-# Direct rustls-webpki is 0.103.12 (patched).
+# Exceptions flagged inline (rsa: default build, no upstream fix).
+# Default-build rustls-webpki is 0.103.13 (patched).
 ignore = [
     # ── rustls-webpki 0.101.x / 0.102.x (transitive, optional features) ──
     # Pulled via aws-smithy (rustls 0.21) and libsql (rustls 0.22). Default
-    # build uses 0.103.12 which is patched.
+    # build uses 0.103.13 which is patched.
     "RUSTSEC-2026-0049",  # CRL Distribution Point bypass
     "RUSTSEC-2026-0098",  # Name constraints URI bypass
     "RUSTSEC-2026-0099",  # Name constraints wildcard bypass
+    "RUSTSEC-2026-0104",  # CRL-parsing reachable panic (same transitives)
 
     # ── Unmaintained transitives via libsql (optional `libsql`/`import`) ──
     "RUSTSEC-2025-0141",  # bincode 1.x unmaintained
@@ -19,6 +21,15 @@ ignore = [
     # ── fxhash via wasmtime profiling (default build) ──
     # Unmaintained (not a CVE). Waiting on wasmtime migration to rustc-hash.
     "RUSTSEC-2025-0057",
+
+    # ── rsa Marvin timing sidechannel — DEFAULT BUILD, no upstream fix ──
+    # Via jsonwebtoken PS256 client-assertion (Microsoft Graph cert auth).
+    # Server-side low-frequency signing of our own assertions, not attacker-
+    # paced. Accepted pending an upstream rsa fix or move off RSA assertion.
+    "RUSTSEC-2023-0071",
+
+    # ── paste — proc-macro, unmaintained (not a CVE), transitive, no fix ──
+    "RUSTSEC-2024-0436",
 ]
 
 [licenses]
