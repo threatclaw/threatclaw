@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
+import { stripSecrets } from "@/lib/config-storage";
 import {
   Cpu, MessageSquare, ShieldAlert, Check, Save, RotateCcw, Wifi, Loader2,
   CheckCircle2, Eye, Bell, ShieldCheck, Zap, AlertTriangle, Globe, Shield,
@@ -240,7 +241,7 @@ export default function ConfigPage({ onResetWizard, currentTab }: ConfigPageProp
         setTimeout(() => setSaved(false), 2500);
       }
     } catch {
-      localStorage.setItem("threatclaw_config", JSON.stringify(config));
+      localStorage.setItem("threatclaw_config", JSON.stringify(stripSecrets(config)));
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     }

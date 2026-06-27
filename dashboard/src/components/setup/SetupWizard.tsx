@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
+import { stripSecrets } from "@/lib/config-storage";
 import {
   Shield, ChevronRight, ChevronLeft, Cpu, Link2, ShieldCheck, Calendar,
   CheckCircle2, Eye, Bell, ShieldAlert, Zap, MessageSquare, Mail, Server,
@@ -226,13 +227,13 @@ export default function SetupWizard() {
         setSaved(true);
       } else {
         // Fallback
-        localStorage.setItem("threatclaw_config", JSON.stringify(config));
+        localStorage.setItem("threatclaw_config", JSON.stringify(stripSecrets(config)));
         localStorage.setItem("threatclaw_onboarded", "true");
         setSaving(false);
         setSaved(true);
       }
     } catch {
-      localStorage.setItem("threatclaw_config", JSON.stringify(config));
+      localStorage.setItem("threatclaw_config", JSON.stringify(stripSecrets(config)));
       localStorage.setItem("threatclaw_onboarded", "true");
       setSaving(false);
       setSaved(true);
