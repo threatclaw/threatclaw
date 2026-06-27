@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.57-beta] — 2026-06-27
+
+### Security
+- Updated bundled dependencies to resolve upstream advisories in document parsing, the database driver, the networking stack, and the runtime.
+
+### Changed
+- Build toolchain updated to Rust 1.96 and base images refreshed.
+
 ## [1.0.56-beta] — 2026-06-26
 
 ### Added
