@@ -12,7 +12,8 @@
 #   --hostname NAME     Hostname for TLS certificate (default: threatclaw.local)
 #   --clean             Wipe all data and reinstall fresh (keeps Docker image cache)
 #   --uninstall         Remove ThreatClaw completely (including Docker images)
-#   --update            Pull latest images and restart
+#   --update            Pull latest images and restart (finds the install dir automatically)
+#   --repair            Reconnect orphaned data after a broken pre-1.0.58 update
 #   --status            Show service status
 #   --yes               Skip confirmation prompt
 #
@@ -55,6 +56,7 @@ TC_HTTP_PORT=80
 TC_DEPLOY_MODE=""          # standalone | external-proxy | custom-port (auto-detected)
 FLAG_UNINSTALL=false
 FLAG_UPDATE=false
+FLAG_REPAIR=false
 FLAG_STATUS=false
 FLAG_CLEAN=false
 FLAG_YES=false
@@ -68,6 +70,7 @@ while [[ $# -gt 0 ]]; do
     --hostname)     TC_HOSTNAME="$2"; shift 2 ;;
     --uninstall)    FLAG_UNINSTALL=true; shift ;;
     --update)       FLAG_UPDATE=true; shift ;;
+    --repair)       FLAG_REPAIR=true; shift ;;
     --status)       FLAG_STATUS=true; shift ;;
     --clean)        FLAG_CLEAN=true; shift ;;
     --yes)          FLAG_YES=true; shift ;;
@@ -230,9 +233,49 @@ cmd_clean() {
 }
 
 # ── Update ───────────────────────────────────────────────────────────────────
+# Resolve the REAL install dir. An update/repair can run with a different default
+# than the original install (best_mount redirect or a --data that wasn't
+# replayed) — the root cause of the "update = fresh install" bug. Order: explicit
+# --data > marker written at install > detected running stack > default. Only
+# override when the user did NOT pass an explicit --data.
+resolve_install_dir() {
+  if [ "$TC_DIR" = "$DEFAULT_DIR" ]; then
+    if [ -s /etc/threatclaw/install-dir ]; then
+      local _marked; _marked=$(cat /etc/threatclaw/install-dir 2>/dev/null)
+      if [ -n "$_marked" ] && [ -d "$_marked" ]; then
+        TC_DIR="$_marked"
+        log_info "Using recorded install dir: ${TC_DIR}"
+      fi
+    else
+      # Legacy install (pre-marker): find the dir of the existing threatclaw stack.
+      local _detected
+      _detected=$( { docker compose ls -a --format json 2>/dev/null || true; } \
+        | tr ',' '\n' | grep -i 'ConfigFiles' | grep -i 'threatclaw' \
+        | grep -oE '/[^"]*/docker-compose\.yml' | head -1 )
+      _detected="${_detected%/docker-compose.yml}"
+      if [ -n "$_detected" ] && [ -d "$_detected" ]; then
+        TC_DIR="$_detected"
+        log_info "Detected existing install dir: ${TC_DIR}"
+      fi
+    fi
+  fi
+}
+
+# Record the canonical install dir so later --update/--repair find it directly.
+mark_install_dir() {
+  mkdir -p /etc/threatclaw 2>/dev/null || true
+  echo "$TC_DIR" > /etc/threatclaw/install-dir 2>/dev/null || true
+}
+
 cmd_update() {
   log_step "Updating ThreatClaw..."
+  resolve_install_dir
+  if [ ! -d "$TC_DIR" ]; then
+    log_error "No install found at ${TC_DIR}. If your data lives elsewhere, re-run with --data <dir>."
+    exit 1
+  fi
   cd "$TC_DIR"
+  mark_install_dir
 
   # Re-download compose + config files (picks up new services, DNS fixes, etc.)
   log_info "Downloading latest configuration..."
@@ -279,6 +322,78 @@ cmd_update() {
       docker image rm "$_img" >/dev/null 2>&1 && _removed=$((_removed + 1))
     done
     [ "$_removed" -gt 0 ] && log_info "Reclaimed disk: removed ${_removed} superseded ThreatClaw image(s)"
+  fi
+}
+
+cmd_repair() {
+  log_step "Repairing ThreatClaw — reconnecting orphaned data..."
+  resolve_install_dir
+  if [ ! -d "$TC_DIR" ] || [ ! -f "$TC_DIR/docker-compose.yml" ]; then
+    log_error "No ThreatClaw install found. Run a fresh install first, or pass --data <dir>."
+    exit 1
+  fi
+  cd "$TC_DIR"
+  mark_install_dir
+
+  # Pin the project name so we converge on the canonical threatclaw_pgdata volume.
+  if [ -f .env ] && ! grep -q '^COMPOSE_PROJECT_NAME=' .env; then
+    echo "COMPOSE_PROJECT_NAME=threatclaw" >> .env
+    log_info "Pinned COMPOSE_PROJECT_NAME=threatclaw in .env"
+  fi
+  local target_vol="threatclaw_pgdata"
+
+  # Find every *_pgdata volume that actually contains a Postgres cluster.
+  log_info "Scanning for ThreatClaw data volumes..."
+  local vols_with_data="" v sz
+  for v in $(docker volume ls --format '{{.Name}}' 2>/dev/null | grep -E '_pgdata$'); do
+    if docker run --rm -v "$v":/d alpine sh -c '[ -d /d/base ] && [ -d /d/pg_wal ]' >/dev/null 2>&1; then
+      sz=$(docker run --rm -v "$v":/d alpine sh -c 'du -sm /d 2>/dev/null | cut -f1' 2>/dev/null)
+      log_info "  data volume: ${v} (~${sz:-?} MB)"
+      vols_with_data="${vols_with_data} ${v}"
+    fi
+  done
+
+  if [ -z "$vols_with_data" ]; then
+    log_warn "No Postgres data volume found — nothing to reconnect. Starting the stack as-is."
+    docker compose up -d
+    return 0
+  fi
+
+  if printf '%s\n' $vols_with_data | grep -qx "$target_vol"; then
+    log_info "Canonical volume ${target_vol} already holds data — restarting the stack on it."
+    docker compose up -d --force-recreate
+  else
+    # Pick the largest data volume as the real DB and copy it into the canonical one.
+    local src
+    src=$(for v in $vols_with_data; do
+            sz=$(docker run --rm -v "$v":/d alpine sh -c 'du -sm /d 2>/dev/null | cut -f1' 2>/dev/null)
+            echo "${sz:-0} ${v}"
+          done | sort -rn | head -1 | awk '{print $2}')
+    log_warn "Canonical volume ${target_vol} is empty/absent. Orphaned data found in: ${src}"
+    echo ""
+    echo "  Repair will COPY ${src} -> ${target_vol} (non-destructive: ${src} is"
+    echo "  kept untouched as a backup), then start the stack on ${target_vol}."
+    if [ -t 0 ] && ! $FLAG_YES; then
+      read -rp "  Proceed? [y/N] " r
+      case "$r" in [yY]*) ;; *) echo "  Cancelled — your data is untouched."; exit 0 ;; esac
+    fi
+    docker compose down 2>/dev/null || true   # quiesce postgres before the copy
+    docker volume create "$target_vol" >/dev/null 2>&1 || true
+    log_info "Copying ${src} -> ${target_vol} ..."
+    if ! docker run --rm -v "$src":/from -v "$target_vol":/to alpine sh -c 'cp -a /from/. /to/'; then
+      log_error "Copy failed — your data is untouched in ${src}. Aborting."
+      exit 1
+    fi
+    log_info "Copy complete. Starting the canonical stack..."
+    docker compose up -d --force-recreate
+  fi
+
+  sleep 10
+  if docker compose ps --format '{{.Names}} {{.Status}}' 2>/dev/null | grep -qiE 'healthy|Up'; then
+    log_info "Repair complete — stack is up. Check your config in the dashboard."
+    log_info "The orphaned volume is kept as a backup; remove it manually once you've verified."
+  else
+    log_warn "Stack started but health unclear. Check: cd ${TC_DIR} && docker compose logs -f"
   fi
 }
 
@@ -648,6 +763,10 @@ download_configs() {
   mkdir -p "$TC_DIR"
   cd "$TC_DIR"
 
+  # Persist the canonical install dir so `--update`/`--repair` always find this
+  # stack, even when invoked with a different --data / default later.
+  mark_install_dir
+
   # Docker compose
   http_fetch "${REPO_RAW}/docker/docker-compose.yml" docker-compose.yml
   log_info "docker-compose.yml downloaded"
@@ -662,6 +781,12 @@ download_configs() {
     # Docker socket GID for ephemeral skill containers
     local docker_gid=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "0")
     echo "DOCKER_GID=${docker_gid}" >> .env
+
+    # Pin the Compose project name so the stack and its volumes are stable
+    # regardless of the install directory's basename. Without this the project
+    # defaults to basename(TC_DIR); an update from a different dir then spins up
+    # a parallel stack with an empty pgdata volume (the "fresh install" bug).
+    echo "COMPOSE_PROJECT_NAME=threatclaw" >> .env
 
     # Docker secrets (See ADR-039) — passwords in files, not env vars
     mkdir -p secrets
@@ -967,7 +1092,8 @@ print_success() {
     data_flag=" --data ${TC_DIR}"
   fi
   echo -e "  ${BOLD}Maintenance:${NC}"
-  echo "    curl -fsSL https://get.threatclaw.io | sudo bash -s -- --update${data_flag}     # Update"
+  echo "    curl -fsSL https://get.threatclaw.io | sudo bash -s -- --update      # Update to the latest version"
+  echo "    curl -fsSL https://get.threatclaw.io | sudo bash -s -- --repair      # Reconnect data after a broken update"
   echo "    curl -fsSL https://get.threatclaw.io | sudo bash -s -- --clean${data_flag}      # Fresh reinstall"
   echo "    curl -fsSL https://get.threatclaw.io | sudo bash -s -- --status${data_flag}     # Status"
   echo "    curl -fsSL https://get.threatclaw.io | sudo bash -s -- --uninstall${data_flag}  # Remove"
@@ -984,6 +1110,7 @@ main() {
   if $FLAG_STATUS; then cmd_status; exit 0; fi
   if $FLAG_UNINSTALL; then cmd_uninstall; exit 0; fi
   if $FLAG_UPDATE; then cmd_update; exit 0; fi
+  if $FLAG_REPAIR; then cmd_repair; exit 0; fi
   if $FLAG_CLEAN; then cmd_clean; fi  # Wipes data then continues with install
 
   # Confirmation (skip if piped or --yes)

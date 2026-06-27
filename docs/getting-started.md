@@ -235,6 +235,11 @@ also drives every lifecycle operation. Pass a flag to pick the mode
 # Pull the latest images and restart in place
 curl -fsSL https://get.threatclaw.io | sudo bash -s -- --update
 
+# Reconnect orphaned data after a broken pre-1.0.58 update (config looks
+# "reset"). Finds the data volume and reattaches the stack to it. Safe and
+# non-destructive — the old volume is kept as a backup.
+curl -fsSL https://get.threatclaw.io | sudo bash -s -- --repair
+
 # Wipe data and reinstall fresh — keeps the Docker image cache so
 # the reinstall is fast. The "start over with the same OS" option.
 curl -fsSL https://get.threatclaw.io | sudo bash -s -- --clean --yes
@@ -245,12 +250,13 @@ curl -fsSL https://get.threatclaw.io | sudo bash -s -- --clean --yes
 curl -fsSL https://get.threatclaw.io | sudo bash -s -- --uninstall --yes
 ```
 
-`--update` is safe to schedule from cron; `--clean` and
-`--uninstall` are destructive and should be run interactively unless
-you fully control the host. Custom install paths (`--data DIR`,
-`--port PORT`, `--docker-data DIR`) are honoured by every mode — pass
-the same values the original install used so the script can locate
-the deployment.
+`--update` and `--repair` locate the existing deployment automatically
+(recorded at install in `/etc/threatclaw/install-dir`), so you no longer
+need to re-pass `--data` for them — even if the install was redirected to
+a larger partition. `--update` is safe to schedule from cron; `--clean`
+and `--uninstall` are destructive and should be run interactively unless
+you fully control the host. For `--clean`/`--uninstall` on a custom path,
+pass the same `--data DIR` the original install used.
 
 ## Declare critical assets
 
