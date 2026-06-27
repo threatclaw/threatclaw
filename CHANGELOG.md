@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.58-beta] — 2026-06-27
+
+### Added
+- On-demand and automatic CVE scanning: scan a host's software for known vulnerabilities from the asset and findings pages, and newly enrolled or changed hosts are scanned within minutes instead of waiting for the daily pass.
+- `--repair` installer command to reconnect data after an interrupted update.
+
+### Fixed
+- `--update` now reliably finds an existing install — even on a custom or relocated data directory — instead of starting a parallel empty stack.
+- Resolved upstream security advisories in bundled dependencies.
+
+### Changed
+- The database image is now built and versioned in CI alongside the other images.
+
 ## [1.0.57-beta] — 2026-06-27
 
 ### Security
