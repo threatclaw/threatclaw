@@ -2,6 +2,7 @@
 # All extensions in a single PostgreSQL instance.
 
 FROM pgvector/pgvector:pg16
+LABEL org.opencontainers.image.source="https://github.com/threatclaw/threatclaw"
 
 # Install Apache AGE (graph database extension)
 RUN apt-get update && apt-get install -y --no-install-recommends \
