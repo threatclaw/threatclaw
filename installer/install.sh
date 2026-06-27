@@ -277,6 +277,17 @@ cmd_update() {
   cd "$TC_DIR"
   mark_install_dir
 
+  # Harden secret file perms on installs created before they were owner-only:
+  # older installs left secrets/*.txt at 644 (world-readable). Re-apply the
+  # verified owner-only perms (core UID 1000 + 600). Idempotent — a no-op if
+  # already correct, and the chown guards mean a non-1000 setup falls back
+  # untouched rather than crash-looping.
+  if [ -d secrets ] && ls secrets/*.txt >/dev/null 2>&1; then
+    if chown 1000:1000 secrets/*.txt 2>/dev/null; then
+      chmod 600 secrets/*.txt 2>/dev/null || true
+    fi
+  fi
+
   # Re-download compose + config files (picks up new services, DNS fixes, etc.)
   log_info "Downloading latest configuration..."
   ensure_http_fetcher || exit 1
