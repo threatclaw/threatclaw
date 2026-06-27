@@ -7,17 +7,16 @@
 #   docker run --env-file .env -p 3000:3000 threatclaw:latest
 
 # Stage 1: Build
-FROM rust:1.94-bookworm AS builder
+FROM rust:1.96-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev cmake gcc g++ \
     protobuf-compiler libprotobuf-dev \
     && rm -rf /var/lib/apt/lists/* \
     && rustup target add wasm32-wasip2 \
-    && cargo install --locked wasm-tools@1.240.0
-# wasm-tools pinned to 1.240 — later versions pull constant_time_eq 0.4.3
-# which requires rustc 1.95+; our base image is rust:1.94. Bump this pin
-# (and the rust:X base tag) together.
+    && cargo install --locked wasm-tools
+# wasm-tools tracks latest; the rust:1.96 base satisfies constant_time_eq's
+# rustc 1.95+ requirement (the reason for the prior wasm-tools 1.240 pin).
 #
 # protobuf-compiler (protoc) is required by tonic-build to compile the
 # Velociraptor .proto tree into Rust stubs for skill-velociraptor. Removing

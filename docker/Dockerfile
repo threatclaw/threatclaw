@@ -9,7 +9,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: Build the Rust binary ────────────────────────────────────────────
-FROM rust:1.94-bookworm AS builder
+FROM rust:1.96-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -31,11 +31,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # protoc itself is present.
 
 # Install WASM target and tools (needed for tool sandbox compilation).
-# wasm-tools pinned to 1.240 — later versions pull constant_time_eq 0.4.3
-# which requires rustc 1.95+; our base image is rust:1.94. Bump the image
-# tag (and remove this pin) once the base is updated.
+# wasm-tools tracks latest; the rust:1.96 base satisfies constant_time_eq's
+# rustc 1.95+ requirement (the reason for the prior wasm-tools 1.240 pin).
 RUN rustup target add wasm32-wasip2 \
-    && cargo install --locked wasm-tools@1.240.0
+    && cargo install --locked wasm-tools
 
 WORKDIR /app
 

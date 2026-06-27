@@ -37,7 +37,16 @@ updates:
       - dependencies
       - npm
 
-  # Docker images
+  # Docker images — root Dockerfile is the one release.yml ships
+  # (ghcr.io/threatclaw/core); /docker holds the compose/dev + sandbox images.
+  # Both directories must be watched or the shipped image drifts off-radar.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker
   - package-ecosystem: docker
     directory: /docker
     schedule:
