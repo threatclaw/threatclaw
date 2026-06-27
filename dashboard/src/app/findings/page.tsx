@@ -53,7 +53,7 @@ export default function FindingsPage() {
       setError(tr("backendNotAccessible", locale));
     }
     setLoading(false);
-  }, [filterSeverity, filterStatus]);
+  }, [filterSeverity, filterStatus, locale]);
 
   useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
 
