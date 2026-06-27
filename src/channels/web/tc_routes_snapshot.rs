@@ -121,6 +121,7 @@ pub const TC_ROUTES: &[&str] = &[
     "/api/tc/enrichment/phishtank",
     "/api/tc/enrichment/priority",
     "/api/tc/enrichment/safebrowsing",
+    "/api/tc/enrichment/scan",
     "/api/tc/enrichment/securitytrails/{domain}",
     "/api/tc/enrichment/shodan/{ip}",
     "/api/tc/enrichment/spamhaus/{ip}",

@@ -8,12 +8,105 @@
 // that produced ~73/75 false positives.
 
 use crate::db::Database;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub struct VulnScanResult {
     pub software_checked: usize,
     pub cves_found: usize,
     pub findings_created: usize,
     pub critical_count: usize,
+}
+
+// ── Targeted re-scan queue (scan-on-enroll / scan-on-change) ──────────────
+//
+// The daily scan_all_assets covers everything, but an asset onboarded — or whose
+// software inventory changes — between two daily runs would otherwise wait up to
+// 24h for its CVEs. Ingestion (osquery webhook) holds a borrowed `&dyn Database`
+// and must not block on a ~2.5s Grype run, so it can't scan inline. Instead it
+// drops the asset id here; the intelligence loop (which owns an `Arc<dyn Database>`)
+// drains the queue once per cycle and scans the few assets that actually changed.
+//
+// In-memory on purpose: a restart runs a full scan_all_assets at boot anyway, so
+// the queue only needs to bridge steady-state changes between daily scans.
+
+/// Max assets scanned per drain. Caps the cost of a fleet-wide event (e.g. 10k
+/// hosts re-reporting their inventory at once) so one cycle can't become a
+/// multi-minute Grype storm — the overflow stays queued for the next cycle.
+const MAX_RESCAN_PER_CYCLE: usize = 25;
+
+fn rescan_queue() -> &'static Mutex<HashSet<String>> {
+    static Q: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    Q.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Queue an asset for a near-term vulnerability re-scan. Called from osquery
+/// ingestion when an inventory is first seen or changes. Idempotent (a HashSet),
+/// so repeated marks before the next drain collapse to a single scan.
+pub fn mark_for_rescan(asset_id: &str) {
+    if let Ok(mut q) = rescan_queue().lock() {
+        q.insert(asset_id.to_string());
+    }
+}
+
+/// Number of assets currently waiting for a re-scan (observability / status).
+pub fn rescan_queue_len() -> usize {
+    rescan_queue().lock().map(|q| q.len()).unwrap_or(0)
+}
+
+/// Drain up to `MAX_RESCAN_PER_CYCLE` queued assets and scan each. Returns the
+/// number of new findings created. Called once per intelligence cycle so a
+/// freshly-onboarded or just-changed asset surfaces its CVEs in minutes instead
+/// of waiting for the daily scan.
+pub async fn drain_rescan_queue(store: Arc<dyn Database>) -> usize {
+    // Take a bounded batch under the lock, then release it before any await —
+    // a std Mutex guard must never be held across an await point.
+    let batch: Vec<String> = {
+        let mut q = match rescan_queue().lock() {
+            Ok(q) => q,
+            Err(_) => return 0,
+        };
+        if q.is_empty() {
+            return 0;
+        }
+        let take: Vec<String> = q.iter().take(MAX_RESCAN_PER_CYCLE).cloned().collect();
+        for id in &take {
+            q.remove(id);
+        }
+        take
+    };
+
+    let remaining = rescan_queue_len();
+    tracing::info!(
+        "SOFTWARE-VULN: rescan queue — scanning {} asset(s){}",
+        batch.len(),
+        if remaining > 0 {
+            format!(", {remaining} still queued for next cycle")
+        } else {
+            String::new()
+        }
+    );
+
+    let mut total = 0usize;
+    for asset_id in &batch {
+        if let Ok(Some(asset)) = store.get_asset(asset_id).await {
+            if let Some(sw) = asset.software.as_array() {
+                if sw.is_empty() {
+                    continue;
+                }
+                let r = scan_asset_software(
+                    store.as_ref(),
+                    &asset.id,
+                    &asset.name,
+                    asset.os.as_deref().unwrap_or(""),
+                    sw,
+                )
+                .await;
+                total += r.findings_created;
+            }
+        }
+    }
+    total
 }
 
 /// Scan an asset's software inventory for known vulnerabilities.
@@ -365,5 +458,22 @@ mod tests {
             software_vuln_i18n_key(3, true, true),
             "finding.software_vuln.cve_group_crit_kev"
         );
+    }
+
+    #[test]
+    fn rescan_queue_dedups_marks() {
+        // Unique id so this test doesn't race other users of the global queue.
+        let id = "test-asset-rescan-dedup-9z";
+        let before = rescan_queue_len();
+        mark_for_rescan(id);
+        mark_for_rescan(id); // idempotent — same id collapses to one entry
+        assert!(
+            rescan_queue_len() >= before + 1,
+            "marking should enqueue the asset"
+        );
+        // A second distinct id grows the queue by exactly one more.
+        let n = rescan_queue_len();
+        mark_for_rescan("test-asset-rescan-dedup-9z-2");
+        assert_eq!(rescan_queue_len(), n + 1);
     }
 }

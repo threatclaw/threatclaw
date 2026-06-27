@@ -4740,6 +4740,80 @@ pub async fn openphish_sync_handler(
     }
 }
 
+/// POST /api/tc/enrichment/scan[?asset=<id>] — on-demand software CVE scan.
+///
+/// With `?asset=<id>`: scan that one asset synchronously and return its counts
+/// (~a couple of seconds — one Grype run). Without it: kick off a fleet-wide scan
+/// in the background and return immediately, since a full estate can take minutes.
+/// The per-asset path is what makes a freshly-onboarded host show its CVEs on
+/// demand instead of waiting for the daily scan (or the rescan queue).
+pub async fn vuln_scan_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+
+    let asset_id = q
+        .get("asset")
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    if let Some(asset_id) = asset_id {
+        let asset = match store.get_asset(&asset_id).await {
+            Ok(Some(a)) => a,
+            Ok(None) => {
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": "asset not found" }),
+                ));
+            }
+            Err(e) => {
+                return Ok(Json(
+                    serde_json::json!({ "ok": false, "error": format!("{e}") }),
+                ));
+            }
+        };
+        let software = asset.software.as_array().cloned().unwrap_or_default();
+        if software.is_empty() {
+            return Ok(Json(serde_json::json!({
+                "ok": true,
+                "asset": asset.name,
+                "software_checked": 0,
+                "findings_created": 0,
+                "message": "no software inventory yet",
+            })));
+        }
+        let r = crate::enrichment::software_vuln::scan_asset_software(
+            store.as_ref(),
+            &asset.id,
+            &asset.name,
+            asset.os.as_deref().unwrap_or(""),
+            &software,
+        )
+        .await;
+        Ok(Json(serde_json::json!({
+            "ok": true,
+            "asset": asset.name,
+            "software_checked": r.software_checked,
+            "cves_found": r.cves_found,
+            "findings_created": r.findings_created,
+            "critical_count": r.critical_count,
+        })))
+    } else {
+        // Fleet-wide: spawn so the request returns immediately.
+        let store_scan = store.clone();
+        tokio::spawn(async move {
+            let n = crate::enrichment::software_vuln::scan_all_assets(store_scan).await;
+            tracing::info!("SOFTWARE-VULN: manual fleet scan complete — {n} finding(s)");
+        });
+        Ok(Json(serde_json::json!({
+            "ok": true,
+            "status": "started",
+            "scope": "fleet",
+        })))
+    }
+}
+
 /// POST /api/tc/enrichment/sync-all — sync all enrichment sources.
 pub async fn enrichment_sync_all_handler(
     State(state): State<Arc<GatewayState>>,

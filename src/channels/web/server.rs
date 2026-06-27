@@ -695,6 +695,10 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::enrichment_status_handler),
         )
         .route(
+            "/api/tc/enrichment/scan",
+            post(super::handlers::threatclaw_api::vuln_scan_handler),
+        )
+        .route(
             "/api/tc/enrichment/kev/sync",
             post(super::handlers::threatclaw_api::kev_sync_handler),
         )

@@ -42,6 +42,7 @@ import {
   AssetScanSurface,
   GraphIntelSection,
 } from "@/components/assets/sections";
+import { CVEScanButton } from "@/components/CVEScanButton";
 
 // ── Types backend ──
 
@@ -405,7 +406,13 @@ export default function AssetDetailPage() {
               />
             )}
 
-            {section === "software" && <SectionSoftware software={software} />}
+            {section === "software" && (
+              <SectionSoftware
+                software={software}
+                assetId={asset.id}
+                onRescan={load}
+              />
+            )}
 
             {section === "network" && (
               <SectionNetwork asset={asset} services={services} />
@@ -602,7 +609,15 @@ function SectionSummary({
   );
 }
 
-function SectionSoftware({ software }: { software: Array<{ name: string; version?: string; source?: string }> }) {
+function SectionSoftware({
+  software,
+  assetId,
+  onRescan,
+}: {
+  software: Array<{ name: string; version?: string; source?: string }>;
+  assetId: string;
+  onRescan?: () => void;
+}) {
   const locale = useLocale();
   if (software.length === 0) {
     return (
@@ -628,6 +643,14 @@ function SectionSoftware({ software }: { software: Array<{ name: string; version
             : tr("assetDetail_entry", locale)}
         </div>
       </div>
+      {/* On-demand CVE scan for this asset — runs Grype on its inventory now and
+          surfaces software-vuln findings without waiting for the daily scan. */}
+      <CVEScanButton
+        assetId={assetId}
+        locale={locale}
+        variant="card"
+        onDone={onRescan}
+      />
       <div style={{ overflowX: "auto" }}>
         <table className="ad-table">
           <thead>

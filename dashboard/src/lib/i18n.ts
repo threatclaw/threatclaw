@@ -1142,6 +1142,27 @@ const T: Record<string, Record<Locale, string>> = {
   assets_justNow: { fr: "à l'instant", en: "just now" },
   assets_viewVulnerabilities: { fr: "Voir les vulnérabilités", en: "View vulnerabilities" },
   assets_vulnerabilities: { fr: "Vulnérabilités", en: "Vulnerabilities" },
+  // ── On-demand CVE scan (POST /api/tc/enrichment/scan) ──
+  cveScan_button: { fr: "Scanner les CVE", en: "Scan CVEs" },
+  cveScan_fleetButton: { fr: "Scanner tout le parc", en: "Scan all assets" },
+  cveScan_scanning: { fr: "Scan en cours…", en: "Scanning…" },
+  cveScan_assetHint: {
+    fr: "Détecter les CVE dans les logiciels de cet asset.",
+    en: "Detect CVEs in this asset's software.",
+  },
+  cveScan_done: {
+    fr: "Scan terminé : {findings} logiciel(s) vulnérable(s), {cves} CVE.",
+    en: "Scan complete: {findings} vulnerable package(s), {cves} CVEs.",
+  },
+  cveScan_noSoftware: {
+    fr: "Aucun inventaire logiciel pour le moment — le scan se fera dès la première remontée.",
+    en: "No software inventory yet — the scan runs once the first inventory arrives.",
+  },
+  cveScan_fleetStarted: {
+    fr: "Scan CVE du parc lancé en arrière-plan.",
+    en: "Fleet-wide CVE scan started in the background.",
+  },
+  cveScan_error: { fr: "Échec du scan CVE", en: "CVE scan failed" },
   assets_backendUnreachable: { fr: "Backend non accessible — vérifiez que le service tourne", en: "Backend unreachable — check that the service is running" },
   assets_confirmDelete: { fr: "Supprimer cet asset ?", en: "Delete this asset?" },
   assets_assetsImported: { fr: "asset(s) importé(s)", en: "asset(s) imported" },

@@ -109,15 +109,42 @@ pub async fn ingest_software_inventory(
 
     if !software.is_empty() {
         if let Ok(Some(asset)) = store.find_asset_by_hostname(hostname).await {
+            // Did the inventory actually change (or arrive for the first time)?
+            // If so, queue a targeted Grype re-scan so CVEs surface within a cycle
+            // instead of waiting up to 24h for the daily scan. Compare name|version
+            // sets so an identical re-report doesn't re-trigger a scan every sync.
+            let changed = software_inventory_changed(&asset.software, &software);
             crate::connectors::log_db_write(
                 "osquery:update_asset_software",
                 store.update_asset_software(&asset.id, &serde_json::Value::Array(software)),
             )
             .await;
+            if changed {
+                crate::enrichment::software_vuln::mark_for_rescan(&asset.id);
+            }
         }
     }
 
     (count, vec![])
+}
+
+/// True when the freshly-reported software set differs from what the asset
+/// already had — a new package, a version bump, or the very first inventory (old
+/// set empty). Compares name|version pairs only, so an identical re-report (which
+/// still carries a fresh `detected_at` per entry) does not re-queue a Grype scan.
+fn software_inventory_changed(old: &serde_json::Value, new: &[serde_json::Value]) -> bool {
+    fn sig(items: &[serde_json::Value]) -> std::collections::HashSet<String> {
+        items
+            .iter()
+            .filter_map(|s| {
+                let n = s.get("name")?.as_str()?;
+                let v = s.get("version").and_then(|v| v.as_str()).unwrap_or("");
+                Some(format!("{n}|{v}"))
+            })
+            .collect()
+    }
+    let old_sig = old.as_array().map(|a| sig(a)).unwrap_or_default();
+    sig(new) != old_sig
 }
 
 // ── Process network connections → IoC check ──
@@ -2016,6 +2043,31 @@ pub async fn check_sysmon_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_change_detection() {
+        let v = |n: &str, ver: &str| serde_json::json!({"name": n, "version": ver});
+        // First inventory: old is empty/null → changed.
+        assert!(software_inventory_changed(
+            &serde_json::Value::Null,
+            &[v("openssl", "3.0.11")]
+        ));
+        // Identical set re-reported (even with a different detected_at) → unchanged.
+        let old = serde_json::json!([
+            {"name": "openssl", "version": "3.0.11", "detected_at": "2026-06-01T00:00:00Z"}
+        ]);
+        assert!(!software_inventory_changed(
+            &old,
+            &[serde_json::json!({"name": "openssl", "version": "3.0.11", "detected_at": "2026-06-27T00:00:00Z"})]
+        ));
+        // Version bump → changed.
+        assert!(software_inventory_changed(&old, &[v("openssl", "3.0.18")]));
+        // New package added → changed.
+        assert!(software_inventory_changed(
+            &old,
+            &[v("openssl", "3.0.11"), v("curl", "7.88")]
+        ));
+    }
 
     #[test]
     fn logon_filter_keeps_interactive_real_accounts() {
