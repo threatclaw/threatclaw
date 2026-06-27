@@ -70,20 +70,24 @@ jobs:
           docker build -t "ghcr.io/threatclaw/ml-engine:${VERSION}" \
                        -t ghcr.io/threatclaw/ml-engine:latest \
                        -f ml-engine/Dockerfile ./ml-engine
-          # db image — Postgres 16 + pgvector + Apache AGE (compiled from source)
-          # + TimescaleDB. Built here so the shipped db image is versioned and
-          # rebuilt every release instead of a hand-pushed, drifting :latest.
-          docker build -t "ghcr.io/threatclaw/db:${VERSION}" \
-                       -t ghcr.io/threatclaw/db:latest \
-                       -f docker/Dockerfile.db docker/
           docker push "ghcr.io/threatclaw/core:${VERSION}"
           docker push ghcr.io/threatclaw/core:latest
           docker push "ghcr.io/threatclaw/dashboard:${VERSION}"
           docker push ghcr.io/threatclaw/dashboard:latest
           docker push "ghcr.io/threatclaw/ml-engine:${VERSION}"
           docker push ghcr.io/threatclaw/ml-engine:latest
-          docker push "ghcr.io/threatclaw/db:${VERSION}"
-          docker push ghcr.io/threatclaw/db:latest
+          # db image — Postgres 16 + pgvector + Apache AGE + TimescaleDB. Built and
+          # pushed LAST and NON-FATAL: a db package/permission issue must never block
+          # the core release (the three images above + the GitHub Release). The db
+          # package must be connected to threatclaw/threatclaw in GHCR settings for
+          # GITHUB_TOKEN to push it; until then this warns and you push db manually.
+          {
+            docker build -t "ghcr.io/threatclaw/db:${VERSION}" \
+                         -t ghcr.io/threatclaw/db:latest \
+                         -f docker/Dockerfile.db docker/ &&
+            docker push "ghcr.io/threatclaw/db:${VERSION}" &&
+            docker push ghcr.io/threatclaw/db:latest
+          } || echo "::warning::db image build/push skipped — connect the db package to the repo in GHCR settings (or push db manually), then it versions automatically."
 
       - name: Extract release binary from core image
         env:
