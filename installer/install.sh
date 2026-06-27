@@ -232,7 +232,43 @@ cmd_clean() {
 # ── Update ───────────────────────────────────────────────────────────────────
 cmd_update() {
   log_step "Updating ThreatClaw..."
+
+  # Resolve the REAL install dir. An update can run with a different default than
+  # the original install (best_mount redirect or a --data that wasn't replayed),
+  # which is the root cause of the "update = fresh install" bug. Resolution order:
+  # explicit --data override > marker written at install > detected running stack
+  # > the default. Only override when the user did NOT pass an explicit --data.
+  if [ "$TC_DIR" = "$DEFAULT_DIR" ]; then
+    if [ -s /etc/threatclaw/install-dir ]; then
+      local _marked; _marked=$(cat /etc/threatclaw/install-dir 2>/dev/null)
+      if [ -n "$_marked" ] && [ -d "$_marked" ]; then
+        TC_DIR="$_marked"
+        log_info "Using recorded install dir: ${TC_DIR}"
+      fi
+    else
+      # Legacy install (pre-marker): find the dir of the existing threatclaw stack.
+      local _detected
+      _detected=$( { docker compose ls -a --format json 2>/dev/null || true; } \
+        | tr ',' '\n' | grep -i 'ConfigFiles' | grep -i 'threatclaw' \
+        | grep -oE '/[^"]*/docker-compose\.yml' | head -1 )
+      _detected="${_detected%/docker-compose.yml}"
+      if [ -n "$_detected" ] && [ -d "$_detected" ]; then
+        TC_DIR="$_detected"
+        log_info "Detected existing install dir: ${TC_DIR}"
+      fi
+    fi
+  fi
+
+  if [ ! -d "$TC_DIR" ]; then
+    log_error "No install found at ${TC_DIR}. If your data lives elsewhere, re-run with --data <dir>."
+    exit 1
+  fi
   cd "$TC_DIR"
+
+  # Record the dir so subsequent updates (and legacy installs just resolved) find
+  # it directly.
+  mkdir -p /etc/threatclaw 2>/dev/null || true
+  echo "$TC_DIR" > /etc/threatclaw/install-dir 2>/dev/null || true
 
   # Re-download compose + config files (picks up new services, DNS fixes, etc.)
   log_info "Downloading latest configuration..."
@@ -648,6 +684,13 @@ download_configs() {
   mkdir -p "$TC_DIR"
   cd "$TC_DIR"
 
+  # Persist the canonical install dir so `--update` always finds this stack,
+  # even when it ran with a different --data / on a different default. Without
+  # this, an update assumes /opt/threatclaw and can miss a best_mount-redirected
+  # or custom-dir install.
+  mkdir -p /etc/threatclaw 2>/dev/null || true
+  echo "$TC_DIR" > /etc/threatclaw/install-dir 2>/dev/null || true
+
   # Docker compose
   http_fetch "${REPO_RAW}/docker/docker-compose.yml" docker-compose.yml
   log_info "docker-compose.yml downloaded"
@@ -662,6 +705,12 @@ download_configs() {
     # Docker socket GID for ephemeral skill containers
     local docker_gid=$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo "0")
     echo "DOCKER_GID=${docker_gid}" >> .env
+
+    # Pin the Compose project name so the stack and its volumes are stable
+    # regardless of the install directory's basename. Without this the project
+    # defaults to basename(TC_DIR); an update from a different dir then spins up
+    # a parallel stack with an empty pgdata volume (the "fresh install" bug).
+    echo "COMPOSE_PROJECT_NAME=threatclaw" >> .env
 
     # Docker secrets (See ADR-039) — passwords in files, not env vars
     mkdir -p secrets
