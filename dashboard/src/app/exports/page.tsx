@@ -520,7 +520,7 @@ function Badge({ label, color, icon: Icon }: { label: string; color: string; ico
   // green=ok, muted for everything else (including purple/blue decorative).
   const low = color.toLowerCase();
   const c = /^#(e0|d0)[0-9a-f]*|var\(--tc-red\)/.test(low) ? "var(--tc-red)"
-    : /^#(d[6-c]|c[0-9a-f])[0-9a-f]*|var\(--tc-amber\)/.test(low) ? "var(--tc-amber)"
+    : /^#(d[6-9a-c]|c[0-9a-f])[0-9a-f]*|var\(--tc-amber\)/.test(low) ? "var(--tc-amber)"
     : /^#(30a|20b|1f6)[0-9a-f]*|var\(--tc-green\)/.test(low) ? "var(--tc-green)"
     : "var(--tc-text-muted)";
   return (
