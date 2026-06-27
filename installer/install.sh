@@ -729,9 +729,6 @@ download_configs() {
   http_fetch "${REPO_RAW}/AGENT_SOUL.toml" AGENT_SOUL.toml
   http_fetch "${REPO_RAW}/threatclaw.toml" threatclaw.toml
 
-  # DB Dockerfile (PostgreSQL + pgvector + AGE)
-  http_fetch "${REPO_RAW}/docker/Dockerfile.db" Dockerfile.db
-
   # HTTPS reverse proxy (nginx + cert generation)
   if [ "$TC_DEPLOY_MODE" != "external-proxy" ]; then
     http_fetch "${REPO_RAW}/docker/nginx.conf" nginx.conf

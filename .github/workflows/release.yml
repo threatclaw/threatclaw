@@ -70,12 +70,20 @@ jobs:
           docker build -t "ghcr.io/threatclaw/ml-engine:${VERSION}" \
                        -t ghcr.io/threatclaw/ml-engine:latest \
                        -f ml-engine/Dockerfile ./ml-engine
+          # db image — Postgres 16 + pgvector + Apache AGE (compiled from source)
+          # + TimescaleDB. Built here so the shipped db image is versioned and
+          # rebuilt every release instead of a hand-pushed, drifting :latest.
+          docker build -t "ghcr.io/threatclaw/db:${VERSION}" \
+                       -t ghcr.io/threatclaw/db:latest \
+                       -f docker/Dockerfile.db docker/
           docker push "ghcr.io/threatclaw/core:${VERSION}"
           docker push ghcr.io/threatclaw/core:latest
           docker push "ghcr.io/threatclaw/dashboard:${VERSION}"
           docker push ghcr.io/threatclaw/dashboard:latest
           docker push "ghcr.io/threatclaw/ml-engine:${VERSION}"
           docker push ghcr.io/threatclaw/ml-engine:latest
+          docker push "ghcr.io/threatclaw/db:${VERSION}"
+          docker push ghcr.io/threatclaw/db:latest
 
       - name: Extract release binary from core image
         env:
