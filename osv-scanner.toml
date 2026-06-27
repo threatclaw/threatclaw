@@ -1,0 +1,55 @@
+# osv-scanner config — GHSA/OSV gate for the Rust dependency tree.
+# Adds coverage cargo-audit (RUSTSEC-only) lacks: osv-scanner reads the OSV
+# database (GHSA included), which is what caught the openssl HIGH that RUSTSEC
+# missed (2026-06-27). Keep these ignores in sync with .cargo/audit.toml.
+#
+# All entries below are optional-feature transitives (libsql/bedrock/import, not
+# in the default build) or have no upstream fix. Same rationale as audit.toml.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2023-0071"  # rsa Marvin timing sidechannel
+reason = "No upstream fix. Default build via jsonwebtoken PS256 MS client-assertion; server-side low-frequency signing, not attacker-paced."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"  # paste unmaintained
+reason = "Proc-macro, unmaintained (not a CVE). Transitive, no fix path."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0141"  # bincode 1.x unmaintained
+reason = "Transitive via libsql (optional feature, not in default build)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0134"  # rustls-pemfile unmaintained
+reason = "Transitive via libsql (optional feature, not in default build)."
+
+[[IgnoredVulns]]
+id = "GHSA-8m95-fffc-h4c5"  # libsql-sqlite3-parser crash
+reason = "libsql optional feature, not in default build; no fix available."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0049"  # rustls-webpki CRL distribution point
+reason = "Old 0.101/0.102 only via optional aws-smithy/libsql; default build uses 0.103.13 (patched)."
+[[IgnoredVulns]]
+id = "GHSA-pwjx-qhcg-rvj4"
+reason = "Alias of RUSTSEC-2026-0049 (rustls-webpki, optional features)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0098"  # rustls-webpki name constraints URI
+reason = "Old 0.101/0.102 only via optional aws-smithy/libsql; default build uses 0.103.13 (patched)."
+[[IgnoredVulns]]
+id = "GHSA-965h-392x-2mh5"
+reason = "Alias of RUSTSEC-2026-0098 (rustls-webpki, optional features)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0099"  # rustls-webpki name constraints wildcard
+reason = "Old 0.101/0.102 only via optional aws-smithy/libsql; default build uses 0.103.13 (patched)."
+[[IgnoredVulns]]
+id = "GHSA-xgp8-3hg3-c2mh"
+reason = "Alias of RUSTSEC-2026-0099 (rustls-webpki, optional features)."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0104"  # rustls-webpki CRL-parsing panic
+reason = "Old 0.101/0.102 only via optional aws-smithy/libsql; default build uses 0.103.13 (patched)."
+[[IgnoredVulns]]
+id = "GHSA-82j2-j2ch-gfr8"
+reason = "Alias of RUSTSEC-2026-0104 (rustls-webpki, optional features)."

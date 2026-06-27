@@ -34,6 +34,17 @@ jobs:
       - name: cargo audit (RUSTSEC, blocking)
         run: cargo audit
 
+      # osv-scanner reads the OSV database (GHSA included) — coverage cargo-audit
+      # (RUSTSEC-only) lacks. This is what would have caught the openssl HIGH that
+      # RUSTSEC missed. Ignores with rationale live in osv-scanner.toml.
+      - name: Install osv-scanner
+        run: |
+          curl -sSL https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64 -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+
+      - name: osv-scanner (GHSA/OSV, Cargo, blocking)
+        run: osv-scanner --lockfile Cargo.lock --config osv-scanner.toml
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
