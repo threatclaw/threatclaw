@@ -12,6 +12,7 @@ import {
 import { fetchFindings, fetchFindingsCounts, updateFindingStatus, type Finding, type CountEntry } from "@/lib/tc-api";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
+import { CVEScanButton } from "@/components/CVEScanButton";
 
 const SEVERITY_COLORS: Record<string, { color: string; bg: string; border: string }> = {
   critical: { color: "#e84040", bg: "rgba(232,64,64,0.08)", border: "rgba(232,64,64,0.2)" },
@@ -78,6 +79,12 @@ export default function FindingsPage() {
       subtitle={tr("detectionsSubtitle", locale)}
     >
       {error && <ErrorBanner message={error} onRetry={load} />}
+
+      {/* On-demand fleet-wide CVE scan — surfaces software vulnerabilities now
+          instead of waiting for the daily scan. Refreshes the list when done. */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "12px" }}>
+        <CVEScanButton locale={locale} onDone={load} />
+      </div>
 
       {/* Severity counts */}
       <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>

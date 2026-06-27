@@ -3594,6 +3594,22 @@ pub fn spawn_intelligence_ticker(
                 }
             }
 
+            // Drain the software-vuln rescan queue (scan-on-enroll / scan-on-change):
+            // assets whose inventory just arrived or changed get their CVEs within a
+            // cycle instead of waiting up to 24h for the daily scan. Own task so a
+            // Grype run (process spawn + ~1GB DB read) never blocks the triage cycle;
+            // the drain itself is capped per call so a fleet-wide event can't pile up.
+            {
+                let store_rescan = store.clone();
+                tokio::spawn(async move {
+                    let n =
+                        crate::enrichment::software_vuln::drain_rescan_queue(store_rescan).await;
+                    if n > 0 {
+                        tracing::info!("SOFTWARE-VULN: rescan queue produced {n} new finding(s)");
+                    }
+                });
+            }
+
             // Run the cycle in its own task so a panic anywhere inside it (any
             // reachable unwrap/expect on a malformed log line, etc.) surfaces as
             // a JoinError instead of silently killing this ticker and freezing
