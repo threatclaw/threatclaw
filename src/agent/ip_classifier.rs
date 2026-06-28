@@ -6,6 +6,12 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
+// IPv6 helpers (prefix masks on the first 16-bit segment).
+const V6_LINK_LOCAL_MASK: u16 = 0xffc0; // fe80::/10
+const V6_LINK_LOCAL: u16 = 0xfe80;
+const V6_ULA_MASK: u16 = 0xfe00; // fc00::/7 (unique local — the IPv6 "private")
+const V6_ULA: u16 = 0xfc00;
+
 /// Classification result for an IP address.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IpClass {
@@ -70,51 +76,62 @@ pub fn is_internal(ip: &str, networks: &[NetworkRange]) -> bool {
     }
 }
 
-/// Check if an IP is a private RFC 1918 address (even if not in declared networks).
+/// Check if an IP is a private address (RFC 1918 for v4, ULA fc00::/7 for v6),
+/// even if not in the declared networks.
 pub fn is_private(ip: &str) -> bool {
-    if let Ok(IpAddr::V4(v4)) = IpAddr::from_str(ip) {
-        let octets = v4.octets();
-        // 10.0.0.0/8
-        if octets[0] == 10 {
-            return true;
+    match IpAddr::from_str(ip) {
+        Ok(IpAddr::V4(v4)) => {
+            let octets = v4.octets();
+            // 10.0.0.0/8
+            if octets[0] == 10 {
+                return true;
+            }
+            // 172.16.0.0/12
+            if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) {
+                return true;
+            }
+            // 192.168.0.0/16
+            if octets[0] == 192 && octets[1] == 168 {
+                return true;
+            }
+            false
         }
-        // 172.16.0.0/12
-        if octets[0] == 172 && (octets[1] >= 16 && octets[1] <= 31) {
-            return true;
-        }
-        // 192.168.0.0/16
-        if octets[0] == 192 && octets[1] == 168 {
-            return true;
-        }
-        false
-    } else {
-        false
+        // IPv6 unique-local addresses fc00::/7 are the v6 equivalent of RFC1918.
+        Ok(IpAddr::V6(v6)) => (v6.segments()[0] & V6_ULA_MASK) == V6_ULA,
+        Err(_) => false,
     }
 }
 
-/// Check if an IP is special (loopback, multicast, link-local, etc.)
+/// Check if an IP is special (loopback, multicast, link-local, unspecified).
 pub fn is_special(ip: &str) -> bool {
-    if let Ok(IpAddr::V4(v4)) = IpAddr::from_str(ip) {
-        let octets = v4.octets();
-        // Loopback 127.0.0.0/8
-        if octets[0] == 127 {
-            return true;
+    match IpAddr::from_str(ip) {
+        Ok(IpAddr::V4(v4)) => {
+            let octets = v4.octets();
+            // Loopback 127.0.0.0/8
+            if octets[0] == 127 {
+                return true;
+            }
+            // Link-local 169.254.0.0/16
+            if octets[0] == 169 && octets[1] == 254 {
+                return true;
+            }
+            // Multicast 224.0.0.0/4
+            if octets[0] >= 224 {
+                return true;
+            }
+            // Broadcast
+            if v4 == Ipv4Addr::BROADCAST {
+                return true;
+            }
+            false
         }
-        // Link-local 169.254.0.0/16
-        if octets[0] == 169 && octets[1] == 254 {
-            return true;
+        Ok(IpAddr::V6(v6)) => {
+            v6.is_loopback()       // ::1
+                || v6.is_unspecified() // ::
+                || v6.is_multicast()   // ff00::/8
+                || (v6.segments()[0] & V6_LINK_LOCAL_MASK) == V6_LINK_LOCAL // fe80::/10
         }
-        // Multicast 224.0.0.0/4
-        if octets[0] >= 224 {
-            return true;
-        }
-        // Broadcast
-        if v4 == Ipv4Addr::BROADCAST {
-            return true;
-        }
-        false
-    } else {
-        false
+        Err(_) => false,
     }
 }
 
@@ -145,6 +162,18 @@ pub fn classify(ip: &str, networks: &[NetworkRange], known_asset_ips: &[String])
     }
 
     IpClass::External
+}
+
+/// Whether an IP observed as a syslog `host` value should be auto-enrolled as an
+/// asset. A WAN-facing firewall logs thousands of public scanner IPs; enrolling
+/// them creates billable junk assets (and they keep coming back every sigma
+/// cycle). Only internal IPs (declared networks, RFC1918/ULA, or a known asset)
+/// are enrollable — External and special addresses are dropped.
+pub fn ip_is_enrollable(ip: &str, networks: &[NetworkRange], known_asset_ips: &[String]) -> bool {
+    !matches!(
+        classify(ip, networks, known_asset_ips),
+        IpClass::External | IpClass::Special
+    )
 }
 
 /// Extract source and destination IPs from a sigma alert or log entry.
@@ -221,5 +250,46 @@ mod tests {
             classify("10.0.0.50", &networks, &known),
             IpClass::InternalUnknown
         );
+    }
+
+    #[test]
+    fn ipv6_special_and_private() {
+        // special
+        assert!(is_special("::1")); // loopback
+        assert!(is_special("::")); // unspecified
+        assert!(is_special("fe80::1")); // link-local
+        assert!(is_special("ff02::1")); // multicast
+        assert!(!is_special("2001:4860:4860::8888")); // public (Google DNS)
+        // private (ULA)
+        assert!(is_private("fc00::1"));
+        assert!(is_private("fd12:3456:789a::1"));
+        assert!(!is_private("2001:4860:4860::8888"));
+        // classify
+        let nets: Vec<NetworkRange> = vec![];
+        assert_eq!(
+            classify("2606:4700:4700::1111", &nets, &[]),
+            IpClass::External
+        );
+        assert_eq!(classify("fc00::1", &nets, &[]), IpClass::InternalUnknown);
+        assert_eq!(classify("::1", &nets, &[]), IpClass::Special);
+    }
+
+    #[test]
+    fn enrollable_drops_public_and_special() {
+        let nets: Vec<NetworkRange> = vec![];
+        let known: Vec<String> = vec![];
+        // public scanner IPs (the #9 billing-pollution case) — never enroll
+        assert!(!ip_is_enrollable("185.220.101.42", &nets, &known));
+        assert!(!ip_is_enrollable("2606:4700:4700::1111", &nets, &known));
+        // special — never enroll
+        assert!(!ip_is_enrollable("127.0.0.1", &nets, &known));
+        assert!(!ip_is_enrollable("::1", &nets, &known));
+        assert!(!ip_is_enrollable("ff02::1", &nets, &known));
+        // genuinely internal — still enroll
+        assert!(ip_is_enrollable("10.0.0.5", &nets, &known));
+        assert!(ip_is_enrollable("fc00::5", &nets, &known));
+        // declared-network IP — enroll
+        let nets2 = vec![NetworkRange::from_cidr("203.0.113.0/24", "DMZ", "dmz").unwrap()];
+        assert!(ip_is_enrollable("203.0.113.7", &nets2, &known));
     }
 }
