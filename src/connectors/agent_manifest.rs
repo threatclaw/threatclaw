@@ -90,6 +90,16 @@ pub fn manifest_json(platform: &str) -> serde_json::Value {
 
     serde_json::json!({
         "version": MANIFEST_VERSION,
+        "accepts_gzip": true,
         "queries": filtered,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_manifest_advertises_gzip() {
+        let m = super::manifest_json("windows");
+        assert_eq!(m["accepts_gzip"], serde_json::json!(true));
+    }
 }
