@@ -979,6 +979,16 @@ function AssetsPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEditId, assets]);
 
+  // Billing filter is opt-in via the ?billing=<bucket> param — e.g. the License
+  // page links here with ?billing=billable. Keeps the inventory a purely
+  // technical list by default; the bucket only applies when explicitly asked.
+  const billingParam = searchParams?.get("billing") || null;
+  useEffect(() => {
+    if (billingParam && BILLABLE_FILTERS.some(f => f.id === billingParam)) {
+      setBillableFilter(billingParam as BillableFilter);
+    }
+  }, [billingParam]);
+
   // ── Modal handlers ──
 
   const openAdd = () => {
@@ -1330,53 +1340,56 @@ function AssetsPageInner() {
         })}
       </div>
 
-      {/* Billable filter row (V67) */}
-      <div
-        style={{
-          display: "flex",
-          gap: "4px",
-          marginBottom: "16px",
-          flexWrap: "wrap",
-          alignItems: "center",
-          paddingBottom: "10px",
-          borderBottom: "1px solid var(--tc-border)",
-        }}
-      >
-        <span
+      {/* Billing filter banner — the billable buckets used to live as a
+          permanent "Statut facturation" bar here, which mixed commercial
+          vocabulary into a technical inventory. They now live on the License
+          page; the inventory only narrows to a bucket when explicitly asked via
+          ?billing=<bucket>, and shows this clearable banner so the operator
+          knows why the list is filtered. */}
+      {billableFilter !== "all" && (
+        <div
           style={{
-            fontSize: "9px",
-            color: "var(--tc-text-muted)",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            marginRight: "8px",
+            display: "flex",
+            gap: "8px",
+            alignItems: "center",
+            marginBottom: "16px",
+            padding: "8px 12px",
+            borderRadius: "var(--tc-radius-sm)",
+            background: "rgba(80,140,220,0.10)",
+            border: "1px solid rgba(80,140,220,0.3)",
           }}
         >
-          {locale === "fr" ? "Statut facturation" : "Billing status"}
-        </span>
-        {BILLABLE_FILTERS.map((f) => {
-          const n = billableCounts[f.id] ?? 0;
-          const active = billableFilter === f.id;
-          return (
-            <button
-              key={f.id}
-              onClick={() => setBillableFilter(f.id)}
-              style={{
-                padding: "5px 10px",
-                fontSize: "10px",
-                fontWeight: 600,
-                fontFamily: "inherit",
-                borderRadius: "var(--tc-radius-sm)",
-                cursor: "pointer",
-                background: active ? "var(--tc-blue)" : "var(--tc-input)",
-                color: active ? "#fff" : "var(--tc-text-muted)",
-                border: active ? "none" : "1px solid var(--tc-border)",
-              }}
-            >
-              {locale === "fr" ? f.labelFr : f.labelEn} ({n})
-            </button>
-          );
-        })}
-      </div>
+          <span style={{ fontSize: "11px", color: "var(--tc-text)" }}>
+            {locale === "fr" ? "Filtré par facturation : " : "Filtered by billing: "}
+            <strong>
+              {locale === "fr"
+                ? BILLABLE_FILTERS.find((f) => f.id === billableFilter)?.labelFr
+                : BILLABLE_FILTERS.find((f) => f.id === billableFilter)?.labelEn}
+            </strong>{" "}
+            ({billableCounts[billableFilter] ?? 0})
+          </span>
+          <button
+            onClick={() => { setBillableFilter("all"); router.replace("/assets"); }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              marginLeft: "auto",
+              padding: "3px 8px",
+              fontSize: "10px",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              borderRadius: "var(--tc-radius-sm)",
+              background: "var(--tc-input)",
+              color: "var(--tc-text-muted)",
+              border: "1px solid var(--tc-border)",
+            }}
+          >
+            <X size={11} /> {locale === "fr" ? "Tout afficher" : "Show all"}
+          </button>
+        </div>
+      )}
 
       {/* Search */}
       <div style={{ marginBottom: "16px", position: "relative" }}>
