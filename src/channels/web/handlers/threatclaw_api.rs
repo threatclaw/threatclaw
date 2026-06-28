@@ -289,7 +289,9 @@ pub fn start_background_services(
         if !SCAN_WORKERS_RUNNING.swap(true, std::sync::atomic::Ordering::Relaxed) {
             crate::scans::spawn_scan_workers(store_clone.clone());
             crate::scans::spawn_schedule_tick(store_clone.clone());
-            tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick started");
+            // Phase 2a: drain the durable webhook ingest_queue off the HTTP path.
+            crate::ingest::spawn_ingest_workers(store_clone.clone());
+            tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick + Ingest Workers started");
         }
 
         // Start Investigation Graph task queue (Phase G1b) — recovery
@@ -6122,12 +6124,32 @@ pub async fn webhook_ingest_handler(
     } else {
         std::borrow::Cow::Borrowed(&body[..])
     };
-    let count =
-        crate::connectors::webhook_ingest::process_webhook(store, &source, token, &decoded).await;
-    if count > 0 {
-        tracing::info!("WEBHOOK: {} events from source {}", count, source);
+    // Async ingestion (Phase 2a): the hot path verifies the token (cheap,
+    // constant-time), sheds load if the durable queue is too deep, otherwise
+    // write-aheads the raw payload and acks immediately. All parsing / Sigma /
+    // inserts happen later in the ingest worker pool — a burst no longer blocks
+    // (and so no longer times out) the request.
+    if !crate::connectors::webhook_ingest::verify_token(store, &source, token).await {
+        return StatusCode::OK; // silent drop, no oracle (unchanged)
     }
-    StatusCode::OK // Always 200
+    match store.ingest_queue_depth().await {
+        Ok(d) if crate::connectors::webhook_ingest::over_backpressure(d) => {
+            tracing::warn!(
+                "WEBHOOK: backpressure shed for {} (queue depth {})",
+                source,
+                d
+            );
+            return StatusCode::SERVICE_UNAVAILABLE; // 503 — agent re-sends next cycle
+        }
+        _ => {}
+    }
+    match store.enqueue_ingest(&source, &decoded).await {
+        Ok(_) => StatusCode::OK,
+        Err(e) => {
+            tracing::error!("WEBHOOK: enqueue failed for {}: {}", source, e);
+            StatusCode::SERVICE_UNAVAILABLE // agent retries; nothing lost
+        }
+    }
 }
 
 /// GET|POST /api/tc/webhook/ping/{source} — validate a webhook token without

@@ -27,6 +27,19 @@ const MAX_BODY_SIZE_LOGS: usize = 1_048_576; // 1 MB for Zeek/Suricata bulk log 
 /// accommodates that plus headroom for VDI / Citrix hosts.
 pub(crate) const MAX_BODY_SIZE_ENDPOINT: usize = 16 * 1024 * 1024;
 
+/// Load-shed threshold for the durable ingest queue (Phase 2a). Sized as a
+/// memory/disk budget, not an arbitrary count: past ~200k queued payloads we
+/// stop acking and tell agents to retry — the delta+gzip agent re-sends the same
+/// window next cycle, so nothing is lost. Raise with disk on bigger nodes.
+pub(crate) const MAX_INGEST_QUEUE_DEPTH: i64 = 200_000;
+
+/// True when the queue is too deep and the hot path should 503 + Retry-After
+/// instead of enqueuing more (prevents unbounded growth / OOM under a sustained
+/// flood the workers cannot drain).
+pub fn over_backpressure(depth: i64) -> bool {
+    depth >= MAX_INGEST_QUEUE_DEPTH
+}
+
 /// Decode a gzip body, bounding the decompressed output to `max` bytes
 /// (anti gzip-bomb). Reads at most `max + 1` bytes then fails if the cap is
 /// exceeded, so a hostile small payload cannot inflate into an OOM.
@@ -179,14 +192,23 @@ pub async fn ping_token(store: &dyn Database, source: &str, token: &str) -> Ping
     PingResult::BadToken
 }
 
-/// Process an incoming webhook. Returns number of findings/alerts created.
+/// Process an incoming webhook (verify token, then run the pipeline). Returns
+/// number of findings/alerts created. Kept for direct/test callers that hold a
+/// token; the async hot path verifies the token itself and calls
+/// `process_webhook_trusted` from a worker instead.
 pub async fn process_webhook(store: &dyn Database, source: &str, token: &str, body: &[u8]) -> u32 {
-    // Verify token
     if !verify_token(store, source, token).await {
         tracing::warn!("WEBHOOK: invalid token for source {}", source);
         return 0;
     }
+    process_webhook_trusted(store, source, body).await
+}
 
+/// The token-verified ingestion pipeline: body-size cap, JSON parse, rate limit,
+/// and source dispatch (parsers + Sigma + insert_log). Phase 2a's worker pool
+/// calls this directly after the hot path has already verified the token, so the
+/// heavy DB work runs OFF the HTTP request thread.
+pub async fn process_webhook_trusted(store: &dyn Database, source: &str, body: &[u8]) -> u32 {
     // Body size check. Zeek/Suricata push bulk logs; osquery/endpoint agents
     // push a full system snapshot per cycle which on a busy server is several
     // MB once software inventory + Windows event logs + scheduled tasks are
@@ -1349,6 +1371,14 @@ mod tests {
         assert_eq!(rate_limit_key("osquery", &o2), "osquery/fallback-field");
         let z = serde_json::json!({ "id.orig_h": "1.2.3.4" });
         assert_eq!(rate_limit_key("zeek", &z), "zeek");
+    }
+
+    #[test]
+    fn test_backpressure_threshold() {
+        assert!(!super::over_backpressure(0));
+        assert!(!super::over_backpressure(super::MAX_INGEST_QUEUE_DEPTH - 1));
+        assert!(super::over_backpressure(super::MAX_INGEST_QUEUE_DEPTH));
+        assert!(super::over_backpressure(super::MAX_INGEST_QUEUE_DEPTH + 10_000));
     }
 
     #[test]
