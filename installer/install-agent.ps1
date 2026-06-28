@@ -500,7 +500,11 @@ function Compress-Gzip([byte[]]$bytes) {
     $ms = New-Object IO.MemoryStream
     $gz = New-Object IO.Compression.GzipStream($ms, [IO.Compression.CompressionMode]::Compress)
     $gz.Write($bytes, 0, $bytes.Length); $gz.Close()
-    return $ms.ToArray()
+    # Leading comma: stop PowerShell from UNROLLING the byte[] on return. Without
+    # it the caller gets an object[] of bytes, and Invoke-RestMethod then sends the
+    # body as the decimal string "31 139 8 0 ..." instead of raw gzip bytes — the
+    # server sees a bogus gzip header and rejects the payload.
+    return ,$ms.ToArray()
 }
 
 $hostnameJson = JsonString $env:COMPUTERNAME
@@ -631,7 +635,7 @@ try {
     $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
     $useGzip = $false
     if ($acceptsGzip) {
-        try { $bytes = Compress-Gzip $bytes; $headers["Content-Encoding"] = "gzip"; $useGzip = $true } catch { }
+        try { [byte[]]$bytes = Compress-Gzip $bytes; $headers["Content-Encoding"] = "gzip"; $useGzip = $true } catch { }
     }
     Invoke-RestMethod -Uri $uri -Method POST -Body $bytes -Headers $headers -TimeoutSec 120 | Out-Null
     Save-State $state
