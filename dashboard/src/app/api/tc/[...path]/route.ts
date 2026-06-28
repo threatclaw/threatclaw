@@ -168,8 +168,19 @@ async function proxyRequest(req: NextRequest) {
     };
 
     if (req.method !== "GET" && req.method !== "HEAD") {
-      const body = await req.text();
-      if (body) fetchOptions.body = body;
+      // Read the body as RAW BYTES, not text. An endpoint agent may send a
+      // gzip-compressed body (Content-Encoding: gzip, negotiated via the
+      // manifest accepts_gzip flag); decoding it as text here would mangle the
+      // binary gzip stream into invalid UTF-8 and the core would then fail to
+      // parse it ("invalid JSON"). Forwarding bytes is equally correct for the
+      // plain-JSON dashboard calls. When the agent compressed the body, forward
+      // its Content-Encoding so the core knows to decompress before parsing.
+      const bodyBuf = await req.arrayBuffer();
+      if (bodyBuf.byteLength > 0) {
+        fetchOptions.body = bodyBuf;
+        const enc = req.headers.get("content-encoding");
+        if (enc) headers["Content-Encoding"] = enc;
+      }
     }
 
     const resp = await fetch(targetUrl, fetchOptions);
