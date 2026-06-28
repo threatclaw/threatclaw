@@ -1101,6 +1101,27 @@ pub async fn check_shared_folders(
 
 // ── Webhook endpoint: process bulk osquery results ──
 
+/// Return the list of sources the agent flagged as truncated (`<x>_truncated: true`).
+///
+/// The agent caps the number of events it ships per cycle; when it hits that cap
+/// it sets a `<source>_truncated` marker so a flood is surfaced as a finding
+/// (often an evasion / log-flooding attempt, MITRE T1562) instead of a silent
+/// loss. Pure function so it is unit-testable without a live store.
+pub fn truncated_sources(json: &serde_json::Value) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(obj) = json.as_object() {
+        for (k, v) in obj {
+            if let Some(src) = k.strip_suffix("_truncated") {
+                if v.as_bool() == Some(true) {
+                    out.push(src.to_string());
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 pub async fn process_osquery_webhook(
     store: &dyn Database,
     hostname: &str,
@@ -1182,6 +1203,20 @@ pub async fn process_osquery_webhook(
         .await;
     }
 
+    // If the agent flagged any source as truncated (it hit its per-cycle event
+    // cap), raise a finding — a flood is a signal (possible evasion / T1562),
+    // never a silent loss.
+    for src in truncated_sources(body) {
+        let title = format!("Ingestion tronquée: {src} (flood possible / évasion T1562)");
+        let _ = store
+            .insert_sigma_alert("osquery-ingest-truncated", "medium", &title, hostname, None, None)
+            .await;
+    }
+
+    // delta-safe: chaque section ci-dessous est gardée par `if let Some(...)`.
+    // L'agent envoie en delta (sections inchangées OMISES, pas envoyées vides) ;
+    // une section absente n'appelle aucun `ingest_*`/`update_*` et la valeur
+    // précédente est donc conservée. Ne JAMAIS wiper sur absence.
     // Process each query type from the batch
     if let Some(software) = body["software"].as_array() {
         let (count, _) = ingest_software_inventory(store, hostname, software).await;
@@ -2085,6 +2120,17 @@ mod tests {
         assert!(!should_record_logon("alice", "4")); // batch
         assert!(!should_record_logon("alice", "8")); // network cleartext
         assert!(!should_record_logon("alice", "")); // unknown type
+    }
+
+    #[test]
+    fn test_detect_truncation_markers() {
+        let j = serde_json::json!({
+            "hostname": "h1",
+            "windows_security_events_truncated": true,
+            "powershell_events_truncated": false
+        });
+        let v = super::truncated_sources(&j);
+        assert_eq!(v, vec!["windows_security_events".to_string()]);
     }
 
     #[test]

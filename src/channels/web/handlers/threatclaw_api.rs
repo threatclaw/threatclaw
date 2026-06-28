@@ -6101,8 +6101,29 @@ pub async fn webhook_ingest_handler(
         .and_then(|v| v.to_str().ok())
         .or_else(|| params.get("token").map(|s| s.as_str()))
         .unwrap_or("");
+    // Transparent decompression: the agent may gzip its payload (negotiated via
+    // the manifest `accepts_gzip` flag). Bounded to MAX_BODY_SIZE_ENDPOINT to
+    // defeat gzip bombs. A decode failure is swallowed as 200 — never an oracle.
+    let ce = headers
+        .get("content-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let decoded: std::borrow::Cow<[u8]> = if ce.eq_ignore_ascii_case("gzip") {
+        match crate::connectors::webhook_ingest::decode_gzip_capped(
+            &body,
+            crate::connectors::webhook_ingest::MAX_BODY_SIZE_ENDPOINT,
+        ) {
+            Ok(d) => std::borrow::Cow::Owned(d),
+            Err(e) => {
+                tracing::warn!("WEBHOOK: gzip decode failed for {}: {}", source, e);
+                return StatusCode::OK; // silent, no oracle
+            }
+        }
+    } else {
+        std::borrow::Cow::Borrowed(&body[..])
+    };
     let count =
-        crate::connectors::webhook_ingest::process_webhook(store, &source, token, &body).await;
+        crate::connectors::webhook_ingest::process_webhook(store, &source, token, &decoded).await;
     if count > 0 {
         tracing::info!("WEBHOOK: {} events from source {}", count, source);
     }

@@ -25,7 +25,23 @@ const MAX_BODY_SIZE_LOGS: usize = 1_048_576; // 1 MB for Zeek/Suricata bulk log 
 /// scheduled tasks, services, windows event logs, DNS cache, ...) in one POST.
 /// On a DC with full audit logging the payload routinely exceeds 1 MB; 16 MB
 /// accommodates that plus headroom for VDI / Citrix hosts.
-const MAX_BODY_SIZE_ENDPOINT: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_BODY_SIZE_ENDPOINT: usize = 16 * 1024 * 1024;
+
+/// Decode a gzip body, bounding the decompressed output to `max` bytes
+/// (anti gzip-bomb). Reads at most `max + 1` bytes then fails if the cap is
+/// exceeded, so a hostile small payload cannot inflate into an OOM.
+pub fn decode_gzip_capped(input: &[u8], max: usize) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut decoder = flate2::read::GzDecoder::new(input).take((max as u64) + 1);
+    let mut out = Vec::with_capacity(8192);
+    decoder
+        .read_to_end(&mut out)
+        .map_err(|e| format!("gzip decode: {e}"))?;
+    if out.len() > max {
+        return Err(format!("gzip décompressé dépasse {max} octets"));
+    }
+    Ok(out)
+}
 
 /// Verify the webhook token for a source.
 pub async fn verify_token(store: &dyn Database, source: &str, token: &str) -> bool {
@@ -1333,5 +1349,26 @@ mod tests {
         assert_eq!(rate_limit_key("osquery", &o2), "osquery/fallback-field");
         let z = serde_json::json!({ "id.orig_h": "1.2.3.4" });
         assert_eq!(rate_limit_key("zeek", &z), "zeek");
+    }
+
+    #[test]
+    fn test_decode_gzip_capped_roundtrip() {
+        use std::io::Write;
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(b"hello threatclaw").unwrap();
+        let gz = e.finish().unwrap();
+        let out = super::decode_gzip_capped(&gz, 1024).unwrap();
+        assert_eq!(out, b"hello threatclaw");
+    }
+
+    #[test]
+    fn test_decode_gzip_capped_rejects_oversize() {
+        use std::io::Write;
+        let big = vec![b'A'; 5 * 1024 * 1024]; // 5 MB de 'A' -> compresse petit
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(&big).unwrap();
+        let gz = e.finish().unwrap();
+        let err = super::decode_gzip_capped(&gz, 1024 * 1024); // cap 1 MB < 5 MB
+        assert!(err.is_err(), "doit rejeter au-delà du cap");
     }
 }
