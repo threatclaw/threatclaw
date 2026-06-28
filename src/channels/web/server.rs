@@ -1750,6 +1750,12 @@ pub async fn start_server(
             "/api/tc/settings/{user_id}/{key}",
             get(super::handlers::threatclaw_api::settings_read_handler),
         )
+        // Per-operator UI preferences (e.g. inventory view-state). Read + write.
+        .route(
+            "/api/tc/ui-state/{key}",
+            get(super::handlers::threatclaw_api::ui_state_get_handler)
+                .put(super::handlers::threatclaw_api::ui_state_set_handler),
+        )
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))
         // OpenAI-compatible API

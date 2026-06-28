@@ -11233,6 +11233,38 @@ pub async fn settings_read_handler(
     }
 }
 
+/// GET /api/tc/ui-state/{key} — read a per-operator UI preference (e.g. the
+/// inventory `asset_view_state`). Single operator per instance (model B+), so
+/// it keys on `state.user_id`; the `ui:` prefix namespaces it away from config
+/// settings. Reachable through the existing /api/tc proxy (session-scoped).
+pub async fn ui_state_get_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(key): Path<String>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let skey = format!("ui:{key}");
+    match store.get_setting(&state.user_id, &skey).await {
+        Ok(v) => Ok(Json(serde_json::json!({ "value": v }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))),
+    }
+}
+
+/// PUT /api/tc/ui-state/{key} — persist a per-operator UI preference.
+/// Body: { value: <json> }.
+pub async fn ui_state_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(key): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let skey = format!("ui:{key}");
+    let value = body.get("value").cloned().unwrap_or(serde_json::Value::Null);
+    match store.set_setting(&state.user_id, &skey, &value).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "ok" }))),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("{e}"))),
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Governance endpoints (v1.2) — AI governance posture + compliance scores.
 // Backed by src/compliance/ (NIS2 + ISO 27001 native evaluators) and the

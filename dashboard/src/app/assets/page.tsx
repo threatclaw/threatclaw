@@ -7,9 +7,10 @@ import { useLocale } from "@/lib/useLocale";
 import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
   Plus, Search, Settings, Trash2, X, RefreshCw, Loader2, Shield, ChevronRight, ChevronLeft,
-  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download, GitMerge,
+  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download, GitMerge, MoreHorizontal,
 } from "lucide-react";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import InventoryView from "@/components/assets/InventoryView";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
 // Phase 11b — single source of truth for criticality colour/label so the
@@ -29,6 +30,7 @@ interface Asset {
   mac_vendor: string | null; services: any; source: string; status: string;
   last_seen: string; first_seen: string; owner: string | null;
   location: string | null; tags: string[]; notes: string | null;
+  user_tags?: { id: number; label: string; color: string }[]; // V98 — tag entities
   classification_method: string; classification_confidence: number;
   // V67 — billable filter dimension.
   inventory_status?: string;
@@ -918,10 +920,12 @@ function AssetsPageInner() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      // Fetch the whole inventory in one shot — the new InventoryView does
+      // type/facet/search/sort/group + virtualisation client-side (10k scale).
       const [aRes, cRes, countRes] = await Promise.all([
         fetch(showTrash
-          ? `/api/tc/assets?status=deleted&limit=500`
-          : `/api/tc/assets?limit=500${activeTab !== "all" ? `&category=${activeTab}` : ""}`, { signal: AbortSignal.timeout(10000) }),
+          ? `/api/tc/assets?status=deleted&limit=10000`
+          : `/api/tc/assets?limit=10000`, { signal: AbortSignal.timeout(30000) }),
         fetch("/api/tc/assets/categories", { signal: AbortSignal.timeout(10000) }),
         fetch("/api/tc/assets/counts", { signal: AbortSignal.timeout(10000) }),
       ]);
@@ -938,7 +942,7 @@ function AssetsPageInner() {
       setError(tr("assets_backendUnreachable", locale));
     }
     setLoading(false);
-  }, [activeTab, showTrash]);
+  }, [showTrash]);
 
   // Corbeille actions.
   const reactivateAsset = async (id: string) => {
@@ -1009,7 +1013,7 @@ function AssetsPageInner() {
       fqdn: a.fqdn || "", os: a.os || "", url: a.url || "",
       mac: a.mac_address || "", owner: a.owner || "",
       location: a.location || "", notes: a.notes || "",
-      tags: (a.tags || []).filter(isUserTag),
+      tags: (a.user_tags || []).map(t => t.label), // V98 — user tags are entities now
     });
     setModalStep(1);
     setShowModal(true);
@@ -1132,6 +1136,14 @@ function AssetsPageInner() {
       (a.tags || []).filter(isUserTag).some(t => t.toLowerCase().includes(s));
   });
 
+  // Assets handed to the new InventoryView: billing pre-filter only (it does
+  // its own type/facet/search/sort/group). Memoised so its internal memos hold.
+  const baseAssets = React.useMemo(
+    () => assets.filter(billablePred),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assets, billableFilter],
+  );
+
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const activeCat = categories.find(c => c.id === form.category);
 
@@ -1206,6 +1218,43 @@ function AssetsPageInner() {
     setMergeOpen(true);
   };
 
+  // InventoryView selection → merge. ≥2 ids opens the dialog straight away;
+  // a single id (drawer "mark as duplicate") just primes merge mode so the
+  // operator can pick the canonical.
+  const onMergeIds = (ids: string[]) => {
+    setMergeSel(new Set(ids));
+    if (ids.length >= 2) {
+      setMergePrimary(ids[0]);
+      setMergeReason("");
+      setMergePatch({
+        name: "canonical", category: "canonical", subcategory: "canonical",
+        role: "canonical", criticality: "canonical", owner: "canonical",
+        location: "canonical", url: "canonical", os: "canonical",
+      });
+      setMergeOpen(true);
+    } else {
+      setMergeMode(true);
+    }
+  };
+
+  // Bulk soft-delete (decommission = reversible) for the selection bar.
+  const onTrashIds = async (ids: string[]) => {
+    if (!ids.length) return;
+    const ok = window.confirm(
+      locale === "fr"
+        ? `Envoyer ${ids.length} asset(s) à la corbeille ?`
+        : `Send ${ids.length} asset(s) to trash?`,
+    );
+    if (!ok) return;
+    await Promise.all(
+      ids.map(id => fetch(`/api/tc/assets/${id}/decommission`, { method: "POST" }).catch(() => {})),
+    );
+    loadData();
+  };
+
+  // Top-bar overflow menu (import / export / trash / refresh).
+  const [overflowOpen, setOverflowOpen] = useState(false);
+
   const doMerge = async () => {
     const aliasIds = Array.from(mergeSel).filter(id => id !== mergePrimary);
     if (!mergePrimary || aliasIds.length === 0 || !mergeReason.trim()) return;
@@ -1273,34 +1322,34 @@ function AssetsPageInner() {
   const dupCount = assets.filter(a => (a.tags || []).includes("possible-duplicate")).length;
 
   const headerActions = (
-    <div style={{ display: "flex", gap: "8px" }}>
+    <div style={{ display: "flex", gap: "8px", position: "relative" }}>
       <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> {locale === "fr" ? "Ajouter" : "Add"}</button>
-      {dupCount > 0 && (
-        <button onClick={() => setShowDupes(d => !d)} style={showDupes ? btnPrimary : btnSecondary}
-          title={locale === "fr" ? "Doublons possibles à vérifier" : "Possible duplicates to review"}>
-          <AlertTriangle size={12} /> {dupCount}
-        </button>
-      )}
-      <button onClick={() => { setMergeMode(m => !m); setMergeSel(new Set()); }}
-        style={mergeMode ? btnPrimary : btnSecondary}
-        title={locale === "fr" ? "Mode fusion (sélectionner des doublons)" : "Merge mode (select duplicates)"}>
-        <GitMerge size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Fusion" : "Merge"}</span>
-      </button>
-      <button onClick={() => { setShowTrash(t => !t); setMergeMode(false); setMergeSel(new Set()); }}
-        style={showTrash ? btnPrimary : btnSecondary}
-        title={locale === "fr" ? "Corbeille (assets supprimés)" : "Trash (deleted assets)"}>
-        <Trash2 size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Corbeille" : "Trash"}</span>
-      </button>
-      <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title={locale === "fr" ? "Importer CSV" : "Import CSV"}>
-        <Upload size={12} />
-      </button>
       <input id="csv-import" type="file" accept=".csv" style={{ display: "none" }} onChange={handleCsvImport} />
-      <button onClick={handleCsvExport} style={btnSecondary} title={locale === "fr" ? "Exporter CSV" : "Export CSV"}>
-        <Download size={12} />
+      <button onClick={() => setOverflowOpen(o => !o)} style={{ ...btnSecondary, padding: "8px 12px" }}
+        title={locale === "fr" ? "Importer / Exporter / Corbeille / Rafraîchir" : "Import / Export / Trash / Refresh"}>
+        <MoreHorizontal size={14} />
       </button>
-      <button onClick={loadData} style={btnSecondary} title={locale === "fr" ? "Rafraîchir" : "Refresh"}>
-        <RefreshCw size={12} />
-      </button>
+      {overflowOpen && (
+        <>
+          <div onClick={() => setOverflowOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 39 }} />
+          <div style={{ position: "absolute", top: "40px", right: 0, zIndex: 40, minWidth: "210px",
+            background: "var(--tc-bg2, var(--tc-input))", border: "1px solid var(--tc-border)",
+            borderRadius: "var(--tc-radius-md)", padding: "6px", boxShadow: "0 14px 40px rgba(0,0,0,0.5)" }}>
+            {[
+              { ic: <Upload size={13} />, lbl: locale === "fr" ? "Importer un inventaire" : "Import inventory", on: () => { setOverflowOpen(false); document.getElementById("csv-import")?.click(); } },
+              { ic: <Download size={13} />, lbl: locale === "fr" ? "Exporter (CSV)" : "Export (CSV)", on: () => { setOverflowOpen(false); handleCsvExport(); } },
+              { ic: <Trash2 size={13} />, lbl: locale === "fr" ? "Voir la corbeille" : "View trash", on: () => { setShowTrash(t => !t); setOverflowOpen(false); } },
+              { ic: <RefreshCw size={13} />, lbl: locale === "fr" ? "Rafraîchir" : "Refresh", on: () => { setOverflowOpen(false); loadData(); } },
+            ].map((it, i) => (
+              <div key={i} onClick={it.on} style={{ display: "flex", alignItems: "center", gap: "9px", padding: "8px 10px",
+                fontSize: "12px", borderRadius: "var(--tc-radius-sm)", cursor: "pointer",
+                color: it.lbl.includes("corbeille") || it.lbl.includes("trash") ? (showTrash ? "var(--tc-blue)" : "var(--tc-text-sec)") : "var(--tc-text-sec)" }}>
+                {it.ic} {it.lbl}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -1312,33 +1361,8 @@ function AssetsPageInner() {
     >
       {error && <ErrorBanner message={error} onRetry={loadData} />}
 
-      {/* Category tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "16px", flexWrap: "wrap" }}>
-        <button onClick={() => setActiveTab("all")} style={{
-          padding: "6px 12px", fontSize: "10px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
-          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.05em",
-          background: activeTab === "all" ? "var(--tc-red)" : "var(--tc-input)",
-          color: activeTab === "all" ? "#fff" : "var(--tc-text-muted)",
-          border: activeTab === "all" ? "none" : "1px solid var(--tc-border)",
-        }}>
-          {tr("assets_all", locale)} ({total})
-        </button>
-        {categories.filter(c => (counts[c.id] || 0) > 0 || c.id === "unknown").map(cat => {
-          const Icon = ICON_MAP[cat.icon] || HelpCircle;
-          const count = counts[cat.id] || 0;
-          return (
-            <button key={cat.id} onClick={() => setActiveTab(cat.id)} style={{
-              padding: "6px 12px", fontSize: "10px", fontWeight: 600, borderRadius: "var(--tc-radius-sm)",
-              cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px",
-              background: activeTab === cat.id ? cat.color : "var(--tc-input)",
-              color: activeTab === cat.id ? "#fff" : "var(--tc-text-muted)",
-              border: activeTab === cat.id ? "none" : "1px solid var(--tc-border)",
-            }}>
-              <Icon size={11} /> {locale === "en" ? (cat.label_en || cat.label) : cat.label} ({count})
-            </button>
-          );
-        })}
-      </div>
+      {/* Category tabs replaced by InventoryView's type pills (Serveur / Poste
+          client / Équipement réseau / Inconnu), client-side. */}
 
       {/* Billing filter banner — the billable buckets used to live as a
           permanent "Statut facturation" bar here, which mixed commercial
@@ -1391,16 +1415,24 @@ function AssetsPageInner() {
         </div>
       )}
 
-      {/* Search */}
-      <div style={{ marginBottom: "16px", position: "relative" }}>
-        <Search size={13} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
-        <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder={tr("searchAssets", locale)}
-          style={{ ...inputStyle, paddingLeft: "30px" }} />
-      </div>
+      {/* Normal view: the dense virtualised inventory (table/list, facets,
+          grouping, selection, drawer). The Corbeille keeps the card list below
+          because it needs reactivate/purge actions the drawer doesn't carry. */}
+      {!showTrash && (
+        <InventoryView
+          assets={baseAssets}
+          loading={loading}
+          locale={locale}
+          onEdit={openEdit}
+          onMergeIds={onMergeIds}
+          onTrash={openDelete}
+          onTrashIds={onTrashIds}
+          onRefresh={loadData}
+        />
+      )}
 
-      {/* Assets list */}
-      {loading ? (
+      {/* Trash view — card list (reactivate / purge) */}
+      {showTrash && (loading ? (
         <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)" }}>
           <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 8px" }} /> {tr("assets_loading", locale)}
         </div>
@@ -1533,7 +1565,7 @@ function AssetsPageInner() {
 
         {/* Phase 10c — popup retiré : la page dédiée /assets/[id] le remplace. */}
         </div>
-      )}
+      ))}
 
       {/* ═══ Add/Edit Modal ═══ */}
       {showModal && (
