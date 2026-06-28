@@ -435,8 +435,9 @@ $autoexec   = Run-Query "SELECT name, path, source FROM autoexec;"
 $patches    = Run-Query "SELECT hotfix_id, description, installed_on FROM patches;"
 $osVer      = Run-Query "SELECT name, version, build, platform FROM os_version;"
 $ifaces     = Run-Query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.description NOT LIKE 'Hyper-V%' AND i.description NOT LIKE 'WSL%' AND i.description NOT LIKE 'vEthernet%' AND i.description NOT LIKE 'TAP-Windows%';"
-$secEvents  = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Security' AND eventid IN (4625,4720,4726,4732,4756,1102) AND datetime > datetime('now', '-6 minutes') LIMIT 200;"
-$psEvents   = Run-Query "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = 'Microsoft-Windows-PowerShell/Operational' AND eventid = 4104 AND datetime > datetime('now', '-6 minutes') LIMIT 300;"
+# Security + PowerShell events are collected by CURSOR further down (after the
+# delta state is loaded), not by a fixed -6min window — so a missed sync never
+# drops events. Same event-id set as before (coverage extension is a later phase).
 
 # PowerShell's pipeline behaviour around arrays makes ConvertTo-Json wrap
 # inner arrays as `{"value":[...]}` whenever the array transits through a
@@ -474,8 +475,96 @@ function FirstObject {
     } catch { return "{}" }
 }
 
+# ── Delta-sync state (Phase 1 transport) ────────────────────────────────────
+# Persisted between cycles so the agent ships only what changed: a hash per
+# inventory section, a datetime cursor per event source, and the last full
+# refresh time. Lives next to the sync script.
+$StateFile = "C:\ProgramData\ThreatClaw\state.json"
+function Get-State {
+    if (Test-Path $StateFile) {
+        try { return (Get-Content $StateFile -Raw | ConvertFrom-Json) } catch { }
+    }
+    return [pscustomobject]@{ hashes = [pscustomobject]@{}; cursors = [pscustomobject]@{}; last_full = 0 }
+}
+function Save-State($state) {
+    try { $state | ConvertTo-Json -Depth 6 | Set-Content $StateFile -Encoding UTF8 } catch { }
+}
+function Get-SectionHash([string]$json) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-","")
+}
+# GzipStream ships with .NET 4.5+ (present on Server 2012R2 and up). Callers wrap
+# this in try/catch so a host without it falls back to an uncompressed POST.
+function Compress-Gzip([byte[]]$bytes) {
+    $ms = New-Object IO.MemoryStream
+    $gz = New-Object IO.Compression.GzipStream($ms, [IO.Compression.CompressionMode]::Compress)
+    $gz.Write($bytes, 0, $bytes.Length); $gz.Close()
+    return $ms.ToArray()
+}
+
 $hostnameJson = JsonString $env:COMPUTERNAME
 $agentIdJson  = JsonString $AGENT_ID
+
+# ── Load delta state + decide on a periodic full refresh ────────────────────
+$state = Get-State
+# Unix time, culture-invariant (avoid Get-Date -UFormat %s + [double]::Parse,
+# which misreads the decimal under fr-FR and breaks the refresh math) and
+# .NET 4.5-safe (no DateTimeOffset.ToUnixTimeSeconds, which needs 4.6).
+$epoch = New-Object DateTime(1970,1,1,0,0,0,[System.DateTimeKind]::Utc)
+$now = [int64]([DateTime]::UtcNow - $epoch).TotalSeconds
+$fullRefresh = ($now - [int64]$state.last_full) -gt 86400   # force a full snapshot 1x/day (self-heal)
+
+# Inventory delta: include a section only when its canonical JSON hash changed
+# (or on the daily full refresh). The queries above still run every cycle (so
+# the collected set is unchanged); we only decide what to PUT ON THE WIRE here.
+$invParts = @()
+function Add-Section($name, $rawJson) {
+    $clean = (JsonChunk $rawJson)
+    $h = Get-SectionHash $clean
+    $prev = $state.hashes.$name
+    if ($fullRefresh -or $prev -ne $h) {
+        $script:invParts += ('"' + $name + '":' + $clean)
+        $state.hashes | Add-Member -NotePropertyName $name -NotePropertyValue $h -Force
+    }
+}
+Add-Section "software"          $software
+Add-Section "patches"           $patches
+Add-Section "services"          $services
+Add-Section "scheduled_tasks"   $tasks
+Add-Section "users"             $users
+Add-Section "autoexec"          $autoexec
+Add-Section "interface_details" $ifaces
+Add-Section "logged_in_users"   $logins
+# os_version is a single object (FirstObject), not an array — same hash gate.
+$osRaw = (FirstObject $osVer)
+$osH = Get-SectionHash $osRaw
+if ($fullRefresh -or $state.hashes.os_version -ne $osH) {
+    $invParts += ('"os_version":' + $osRaw)
+    $state.hashes | Add-Member -NotePropertyName os_version -NotePropertyValue $osH -Force
+}
+if ($fullRefresh) { $state.last_full = $now }
+
+# Events by cursor: ship only events newer than the last datetime we synced OK,
+# ordered, capped. A missed/failed sync is caught up next cycle from the cursor
+# (no fixed-window hole). If the cap is hit we flag truncation so the server can
+# surface a possible log-flood/evasion instead of silently losing events.
+$cap = 10000
+function Collect-Events($name, $channel, $eventFilter) {
+    $cur = $state.cursors.$name
+    if ([string]::IsNullOrEmpty($cur)) { $cur = (Get-Date).AddMinutes(-6).ToString("yyyy-MM-dd HH:mm:ss") }
+    $q = "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = '$channel' AND $eventFilter AND datetime >= '$cur' ORDER BY datetime ASC LIMIT $cap;"
+    $raw = Run-Query $q
+    $arr = @(); try { $arr = @($raw | ConvertFrom-Json) } catch { }
+    $truncated = ($arr.Count -ge $cap)
+    if ($arr.Count -gt 0) {
+        $maxDt = ($arr | Select-Object -Last 1).datetime
+        $state.cursors | Add-Member -NotePropertyName $name -NotePropertyValue $maxDt -Force
+    }
+    return [pscustomobject]@{ raw = (JsonChunk $raw); truncated = $truncated }
+}
+$sec = Collect-Events "windows_security_events" "Security" "eventid IN (4625,4720,4726,4732,4756,1102)"
+$ps  = Collect-Events "powershell_events" "Microsoft-Windows-PowerShell/Operational" "eventid = 4104"
 
 # Skip cert validation for self-signed TLS (also needed for the manifest call below)
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"
@@ -495,9 +584,11 @@ public class TcCertPolicy : ICertificatePolicy {
 # Rust file on the server - never the 200+ endpoints. Manifest fetch
 # failure is non-fatal: we just sync without the extras this cycle.
 $manifestExtras = ""
+$acceptsGzip = $false   # only gzip if the server advertised it (version-skew safe)
 try {
     $manifestUri = "${TC_URL}/api/tc/agent/manifest?platform=windows&token=${TC_TOKEN}"
     $manifest = Invoke-RestMethod -Uri $manifestUri -Method GET -Headers @{"X-Webhook-Token" = $TC_TOKEN} -TimeoutSec 10
+    if ($manifest) { $acceptsGzip = [bool]$manifest.accepts_gzip }
     if ($manifest -and $manifest.queries) {
         Write-Log "Manifest fetched, version=$($manifest.version), $($manifest.queries.Count) extra queries"
         $parts = @()
@@ -511,19 +602,40 @@ try {
     Write-Log "Manifest fetch failed - $_ (continuing without extras)"
 }
 
+# Assemble payload. hostname/agent_id/ts are ALWAYS present = heartbeat (a quiet
+# host stays distinguishable from a dead one). Volatile detection inputs
+# (sockets, listening ports, dns) are ALWAYS shipped — they must be re-checked
+# against threat intel every cycle, so they are never delta'd. Inventory
+# ($invStr) is delta. Events come from the cursor. Truncation flags ride along.
+$truncFlags = @()
+if ($sec.truncated) { $truncFlags += '"windows_security_events_truncated":true' }
+if ($ps.truncated)  { $truncFlags += '"powershell_events_truncated":true' }
+$invStr = ""
+if ($invParts.Count -gt 0) { $invStr = "," + ($invParts -join ",") }
+$truncStr = ""
+if ($truncFlags.Count -gt 0) { $truncStr = "," + ($truncFlags -join ",") }
 $payload = @"
-{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","software":$(JsonChunk $software),"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"users":$(JsonChunk $users),"logged_in_users":$(JsonChunk $logins),"scheduled_tasks":$(JsonChunk $tasks),"services":$(JsonChunk $services),"dns_cache":$(JsonChunk $dns),"autoexec":$(JsonChunk $autoexec),"patches":$(JsonChunk $patches),"os_version":$(FirstObject $osVer),"interface_details":$(JsonChunk $ifaces),"windows_security_events":$(JsonChunk $secEvents),"powershell_events":$(JsonChunk $psEvents)$manifestExtras}
+{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","ts":$now,"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"dns_cache":$(JsonChunk $dns),"windows_security_events":$($sec.raw),"powershell_events":$($ps.raw)$invStr$truncStr$manifestExtras}
 "@
 
-# Send to ThreatClaw
+# Send to ThreatClaw — gzip only if the server advertised it (negotiated via the
+# manifest accepts_gzip flag), with a clear fallback to plaintext if compression
+# is unavailable. State (cursors/hashes/last_full) is saved ONLY after a 200, so
+# a failed sync re-sends the exact same delta next cycle (no lost events).
 try {
     $headers = @{
         "Content-Type"    = "application/json"
         "X-Webhook-Token" = $TC_TOKEN
     }
     $uri = "${TC_URL}/api/tc/webhook/ingest/osquery?token=${TC_TOKEN}"
-    Invoke-RestMethod -Uri $uri -Method POST -Body $payload -Headers $headers -TimeoutSec 30 | Out-Null
-    Write-Log "Sync OK - $AGENT_ID"
+    $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
+    $useGzip = $false
+    if ($acceptsGzip) {
+        try { $bytes = Compress-Gzip $bytes; $headers["Content-Encoding"] = "gzip"; $useGzip = $true } catch { }
+    }
+    Invoke-RestMethod -Uri $uri -Method POST -Body $bytes -Headers $headers -TimeoutSec 120 | Out-Null
+    Save-State $state
+    Write-Log ("Sync OK - $AGENT_ID (gzip=$useGzip, inv=" + $invParts.Count + " sections)")
     Write-Output "Sync OK"
 } catch {
     Write-Log "Sync FAILED - $_"
@@ -561,7 +673,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 2)
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
 
 Register-ScheduledTask -TaskName $TaskName `
     -Action $action `
