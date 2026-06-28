@@ -1270,6 +1270,19 @@ pub async fn start_server(
             "/api/tc/assets/{id}/criticality",
             axum::routing::put(super::handlers::threatclaw_api::asset_criticality_set_handler),
         )
+        .route(
+            "/api/tc/assets/{id}/tags",
+            axum::routing::put(super::handlers::threatclaw_api::asset_tags_set_handler),
+        )
+        // V98 — tag entity: list all tags (facet panel) + bulk-assign to a selection
+        .route(
+            "/api/tc/tags",
+            get(super::handlers::threatclaw_api::tags_list_handler),
+        )
+        .route(
+            "/api/tc/assets/bulk-tag",
+            post(super::handlers::threatclaw_api::assets_bulk_tag_handler),
+        )
         // V68 — manual merge + exclusion (single toggle, billing + monitoring)
         .route(
             "/api/tc/assets/merge",
@@ -1740,6 +1753,12 @@ pub async fn start_server(
         .route(
             "/api/tc/settings/{user_id}/{key}",
             get(super::handlers::threatclaw_api::settings_read_handler),
+        )
+        // Per-operator UI preferences (e.g. inventory view-state). Read + write.
+        .route(
+            "/api/tc/ui-state/{key}",
+            get(super::handlers::threatclaw_api::ui_state_get_handler)
+                .put(super::handlers::threatclaw_api::ui_state_set_handler),
         )
         // Gateway control plane
         .route("/api/gateway/status", get(gateway_status_handler))

@@ -33,7 +33,10 @@ export interface Asset {
   first_seen: string;
   owner: string | null;
   location: string | null;
+  /** System flags only (possible-duplicate / public_ip / keep-separate). */
   tags: string[];
+  /** V98 — operator tags as entities (label + colour), from the listing join. */
+  user_tags?: { id: number; label: string; color: string }[];
   notes: string | null;
   classification_method: string;
   classification_confidence: number;

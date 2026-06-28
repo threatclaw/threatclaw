@@ -7,9 +7,10 @@ import { useLocale } from "@/lib/useLocale";
 import {
   Server, Monitor, Smartphone, Globe, Network, Printer, Cpu, Factory, Cloud, HelpCircle,
   Plus, Search, Settings, Trash2, X, RefreshCw, Loader2, Shield, ChevronRight, ChevronLeft,
-  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download, GitMerge,
+  AlertTriangle, Eye, CheckCircle2, Wifi, Upload, Download, GitMerge, MoreHorizontal,
 } from "lucide-react";
 import { NeuCard } from "@/components/chrome/NeuCard";
+import InventoryView from "@/components/assets/InventoryView";
 import { ErrorBanner } from "@/components/chrome/ErrorBanner";
 import { PageShell } from "@/components/chrome/PageShell";
 // Phase 11b — single source of truth for criticality colour/label so the
@@ -29,6 +30,7 @@ interface Asset {
   mac_vendor: string | null; services: any; source: string; status: string;
   last_seen: string; first_seen: string; owner: string | null;
   location: string | null; tags: string[]; notes: string | null;
+  user_tags?: { id: number; label: string; color: string }[]; // V98 — tag entities
   classification_method: string; classification_confidence: number;
   // V67 — billable filter dimension.
   inventory_status?: string;
@@ -169,6 +171,11 @@ const inputStyle: React.CSSProperties = {
   background: "var(--tc-input)", border: "1px solid var(--tc-border)",
   borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)", outline: "none",
 };
+
+// Tags the platform manages automatically — excluded from the operator-facing
+// tag editor and badges (the duplicate flag has its own dedicated badge).
+const SYSTEM_TAGS = ["possible-duplicate", "public_ip", "keep-separate"];
+const isUserTag = (t: string) => !SYSTEM_TAGS.includes(t);
 
 const labelStyle: React.CSSProperties = {
   fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)",
@@ -903,18 +910,22 @@ function AssetsPageInner() {
   const [form, setForm] = useState({
     category: "", subcategory: "", name: "", role: "", criticality: "medium",
     ip: "", hostname: "", fqdn: "", os: "", url: "", mac: "",
-    owner: "", location: "", notes: "",
+    owner: "", location: "", notes: "", tags: [] as string[],
   });
+  // Draft text in the tag chip-input (not yet committed to a chip).
+  const [tagDraft, setTagDraft] = useState("");
 
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      // Fetch the whole inventory in one shot — the new InventoryView does
+      // type/facet/search/sort/group + virtualisation client-side (10k scale).
       const [aRes, cRes, countRes] = await Promise.all([
         fetch(showTrash
-          ? `/api/tc/assets?status=deleted&limit=500`
-          : `/api/tc/assets?limit=500${activeTab !== "all" ? `&category=${activeTab}` : ""}`, { signal: AbortSignal.timeout(10000) }),
+          ? `/api/tc/assets?status=deleted&limit=10000`
+          : `/api/tc/assets?limit=10000`, { signal: AbortSignal.timeout(30000) }),
         fetch("/api/tc/assets/categories", { signal: AbortSignal.timeout(10000) }),
         fetch("/api/tc/assets/counts", { signal: AbortSignal.timeout(10000) }),
       ]);
@@ -931,7 +942,7 @@ function AssetsPageInner() {
       setError(tr("assets_backendUnreachable", locale));
     }
     setLoading(false);
-  }, [activeTab, showTrash]);
+  }, [showTrash]);
 
   // Corbeille actions.
   const reactivateAsset = async (id: string) => {
@@ -972,17 +983,29 @@ function AssetsPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEditId, assets]);
 
+  // Billing filter is opt-in via the ?billing=<bucket> param — e.g. the License
+  // page links here with ?billing=billable. Keeps the inventory a purely
+  // technical list by default; the bucket only applies when explicitly asked.
+  const billingParam = searchParams?.get("billing") || null;
+  useEffect(() => {
+    if (billingParam && BILLABLE_FILTERS.some(f => f.id === billingParam)) {
+      setBillableFilter(billingParam as BillableFilter);
+    }
+  }, [billingParam]);
+
   // ── Modal handlers ──
 
   const openAdd = () => {
     setEditAsset(null);
-    setForm({ category: "", subcategory: "", name: "", role: "", criticality: "medium", ip: "", hostname: "", fqdn: "", os: "", url: "", mac: "", owner: "", location: "", notes: "" });
+    setTagDraft("");
+    setForm({ category: "", subcategory: "", name: "", role: "", criticality: "medium", ip: "", hostname: "", fqdn: "", os: "", url: "", mac: "", owner: "", location: "", notes: "", tags: [] });
     setModalStep(0);
     setShowModal(true);
   };
 
   const openEdit = (a: Asset) => {
     setEditAsset(a);
+    setTagDraft("");
     setForm({
       category: a.category, subcategory: a.subcategory || "", name: a.name,
       role: a.role || "", criticality: a.criticality,
@@ -990,6 +1013,7 @@ function AssetsPageInner() {
       fqdn: a.fqdn || "", os: a.os || "", url: a.url || "",
       mac: a.mac_address || "", owner: a.owner || "",
       location: a.location || "", notes: a.notes || "",
+      tags: (a.user_tags || []).map(t => t.label), // V98 — user tags are entities now
     });
     setModalStep(1);
     setShowModal(true);
@@ -1009,14 +1033,32 @@ function AssetsPageInner() {
       os: form.os || undefined, url: form.url || undefined,
       mac_address: form.mac || undefined,
       owner: form.owner || undefined, location: form.location || undefined,
-      notes: form.notes || undefined,
+      // On edit, always send the exact textarea value (an explicit "" clears
+      // the note). On create, only send when non-empty to keep the payload lean.
+      notes: editAsset ? form.notes : (form.notes || undefined),
     };
     if (form.ip) body.ip_addresses = form.ip.split(",").map(s => s.trim()).filter(Boolean);
     if (editAsset) body.id = editAsset.id;
-    await fetch("/api/tc/assets", {
+    const res = await fetch("/api/tc/assets", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    // Resolve the asset id — known on edit, returned by the upsert on create.
+    let assetId = editAsset?.id;
+    if (!assetId) {
+      try { assetId = (await res.json())?.id; } catch { /* ignore */ }
+    }
+    // Persist tags through the dedicated set endpoint (the upsert above only
+    // unions tags and can't remove). Fold in any half-typed chip first.
+    if (assetId) {
+      const finalTags = Array.from(new Set(
+        [...form.tags, tagDraft.trim()].filter(Boolean).filter(isUserTag)
+      ));
+      await fetch(`/api/tc/assets/${assetId}/tags`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: finalTags }),
+      });
+    }
     setShowModal(false);
     loadData();
   };
@@ -1090,8 +1132,17 @@ function AssetsPageInner() {
     const s = search.toLowerCase();
     return a.name.toLowerCase().includes(s) || a.ip_addresses.some(ip => ip.includes(s)) ||
       (a.hostname || "").toLowerCase().includes(s) || (a.role || "").toLowerCase().includes(s) ||
-      (a.os || "").toLowerCase().includes(s);
+      (a.os || "").toLowerCase().includes(s) ||
+      (a.tags || []).filter(isUserTag).some(t => t.toLowerCase().includes(s));
   });
+
+  // Assets handed to the new InventoryView: billing pre-filter only (it does
+  // its own type/facet/search/sort/group). Memoised so its internal memos hold.
+  const baseAssets = React.useMemo(
+    () => assets.filter(billablePred),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assets, billableFilter],
+  );
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const activeCat = categories.find(c => c.id === form.category);
@@ -1167,6 +1218,43 @@ function AssetsPageInner() {
     setMergeOpen(true);
   };
 
+  // InventoryView selection → merge. ≥2 ids opens the dialog straight away;
+  // a single id (drawer "mark as duplicate") just primes merge mode so the
+  // operator can pick the canonical.
+  const onMergeIds = (ids: string[]) => {
+    setMergeSel(new Set(ids));
+    if (ids.length >= 2) {
+      setMergePrimary(ids[0]);
+      setMergeReason("");
+      setMergePatch({
+        name: "canonical", category: "canonical", subcategory: "canonical",
+        role: "canonical", criticality: "canonical", owner: "canonical",
+        location: "canonical", url: "canonical", os: "canonical",
+      });
+      setMergeOpen(true);
+    } else {
+      setMergeMode(true);
+    }
+  };
+
+  // Bulk soft-delete (decommission = reversible) for the selection bar.
+  const onTrashIds = async (ids: string[]) => {
+    if (!ids.length) return;
+    const ok = window.confirm(
+      locale === "fr"
+        ? `Envoyer ${ids.length} asset(s) à la corbeille ?`
+        : `Send ${ids.length} asset(s) to trash?`,
+    );
+    if (!ok) return;
+    await Promise.all(
+      ids.map(id => fetch(`/api/tc/assets/${id}/decommission`, { method: "POST" }).catch(() => {})),
+    );
+    loadData();
+  };
+
+  // Top-bar overflow menu (import / export / trash / refresh).
+  const [overflowOpen, setOverflowOpen] = useState(false);
+
   const doMerge = async () => {
     const aliasIds = Array.from(mergeSel).filter(id => id !== mergePrimary);
     if (!mergePrimary || aliasIds.length === 0 || !mergeReason.trim()) return;
@@ -1234,34 +1322,34 @@ function AssetsPageInner() {
   const dupCount = assets.filter(a => (a.tags || []).includes("possible-duplicate")).length;
 
   const headerActions = (
-    <div style={{ display: "flex", gap: "8px" }}>
+    <div style={{ display: "flex", gap: "8px", position: "relative" }}>
       <button onClick={openAdd} style={btnPrimary}><Plus size={13} /> {locale === "fr" ? "Ajouter" : "Add"}</button>
-      {dupCount > 0 && (
-        <button onClick={() => setShowDupes(d => !d)} style={showDupes ? btnPrimary : btnSecondary}
-          title={locale === "fr" ? "Doublons possibles à vérifier" : "Possible duplicates to review"}>
-          <AlertTriangle size={12} /> {dupCount}
-        </button>
-      )}
-      <button onClick={() => { setMergeMode(m => !m); setMergeSel(new Set()); }}
-        style={mergeMode ? btnPrimary : btnSecondary}
-        title={locale === "fr" ? "Mode fusion (sélectionner des doublons)" : "Merge mode (select duplicates)"}>
-        <GitMerge size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Fusion" : "Merge"}</span>
-      </button>
-      <button onClick={() => { setShowTrash(t => !t); setMergeMode(false); setMergeSel(new Set()); }}
-        style={showTrash ? btnPrimary : btnSecondary}
-        title={locale === "fr" ? "Corbeille (assets supprimés)" : "Trash (deleted assets)"}>
-        <Trash2 size={12} /><span style={{ marginLeft: 4 }}>{locale === "fr" ? "Corbeille" : "Trash"}</span>
-      </button>
-      <button onClick={() => document.getElementById("csv-import")?.click()} style={btnSecondary} title={locale === "fr" ? "Importer CSV" : "Import CSV"}>
-        <Upload size={12} />
-      </button>
       <input id="csv-import" type="file" accept=".csv" style={{ display: "none" }} onChange={handleCsvImport} />
-      <button onClick={handleCsvExport} style={btnSecondary} title={locale === "fr" ? "Exporter CSV" : "Export CSV"}>
-        <Download size={12} />
+      <button onClick={() => setOverflowOpen(o => !o)} style={{ ...btnSecondary, padding: "8px 12px" }}
+        title={locale === "fr" ? "Importer / Exporter / Corbeille / Rafraîchir" : "Import / Export / Trash / Refresh"}>
+        <MoreHorizontal size={14} />
       </button>
-      <button onClick={loadData} style={btnSecondary} title={locale === "fr" ? "Rafraîchir" : "Refresh"}>
-        <RefreshCw size={12} />
-      </button>
+      {overflowOpen && (
+        <>
+          <div onClick={() => setOverflowOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 39 }} />
+          <div style={{ position: "absolute", top: "40px", right: 0, zIndex: 40, minWidth: "210px",
+            background: "var(--tc-bg2, var(--tc-input))", border: "1px solid var(--tc-border)",
+            borderRadius: "var(--tc-radius-md)", padding: "6px", boxShadow: "0 14px 40px rgba(0,0,0,0.5)" }}>
+            {[
+              { ic: <Upload size={13} />, lbl: locale === "fr" ? "Importer un inventaire" : "Import inventory", on: () => { setOverflowOpen(false); document.getElementById("csv-import")?.click(); } },
+              { ic: <Download size={13} />, lbl: locale === "fr" ? "Exporter (CSV)" : "Export (CSV)", on: () => { setOverflowOpen(false); handleCsvExport(); } },
+              { ic: <Trash2 size={13} />, lbl: locale === "fr" ? "Voir la corbeille" : "View trash", on: () => { setShowTrash(t => !t); setOverflowOpen(false); } },
+              { ic: <RefreshCw size={13} />, lbl: locale === "fr" ? "Rafraîchir" : "Refresh", on: () => { setOverflowOpen(false); loadData(); } },
+            ].map((it, i) => (
+              <div key={i} onClick={it.on} style={{ display: "flex", alignItems: "center", gap: "9px", padding: "8px 10px",
+                fontSize: "12px", borderRadius: "var(--tc-radius-sm)", cursor: "pointer",
+                color: it.lbl.includes("corbeille") || it.lbl.includes("trash") ? (showTrash ? "var(--tc-blue)" : "var(--tc-text-sec)") : "var(--tc-text-sec)" }}>
+                {it.ic} {it.lbl}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -1273,92 +1361,78 @@ function AssetsPageInner() {
     >
       {error && <ErrorBanner message={error} onRetry={loadData} />}
 
-      {/* Category tabs */}
-      <div style={{ display: "flex", gap: "4px", marginBottom: "16px", flexWrap: "wrap" }}>
-        <button onClick={() => setActiveTab("all")} style={{
-          padding: "6px 12px", fontSize: "10px", fontWeight: 700, borderRadius: "var(--tc-radius-sm)",
-          cursor: "pointer", fontFamily: "inherit", textTransform: "uppercase", letterSpacing: "0.05em",
-          background: activeTab === "all" ? "var(--tc-red)" : "var(--tc-input)",
-          color: activeTab === "all" ? "#fff" : "var(--tc-text-muted)",
-          border: activeTab === "all" ? "none" : "1px solid var(--tc-border)",
-        }}>
-          {tr("assets_all", locale)} ({total})
-        </button>
-        {categories.filter(c => (counts[c.id] || 0) > 0 || c.id === "unknown").map(cat => {
-          const Icon = ICON_MAP[cat.icon] || HelpCircle;
-          const count = counts[cat.id] || 0;
-          return (
-            <button key={cat.id} onClick={() => setActiveTab(cat.id)} style={{
-              padding: "6px 12px", fontSize: "10px", fontWeight: 600, borderRadius: "var(--tc-radius-sm)",
-              cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: "4px",
-              background: activeTab === cat.id ? cat.color : "var(--tc-input)",
-              color: activeTab === cat.id ? "#fff" : "var(--tc-text-muted)",
-              border: activeTab === cat.id ? "none" : "1px solid var(--tc-border)",
-            }}>
-              <Icon size={11} /> {locale === "en" ? (cat.label_en || cat.label) : cat.label} ({count})
-            </button>
-          );
-        })}
-      </div>
+      {/* Category tabs replaced by InventoryView's type pills (Serveur / Poste
+          client / Équipement réseau / Inconnu), client-side. */}
 
-      {/* Billable filter row (V67) */}
-      <div
-        style={{
-          display: "flex",
-          gap: "4px",
-          marginBottom: "16px",
-          flexWrap: "wrap",
-          alignItems: "center",
-          paddingBottom: "10px",
-          borderBottom: "1px solid var(--tc-border)",
-        }}
-      >
-        <span
+      {/* Billing filter banner — the billable buckets used to live as a
+          permanent "Statut facturation" bar here, which mixed commercial
+          vocabulary into a technical inventory. They now live on the License
+          page; the inventory only narrows to a bucket when explicitly asked via
+          ?billing=<bucket>, and shows this clearable banner so the operator
+          knows why the list is filtered. */}
+      {billableFilter !== "all" && (
+        <div
           style={{
-            fontSize: "9px",
-            color: "var(--tc-text-muted)",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            marginRight: "8px",
+            display: "flex",
+            gap: "8px",
+            alignItems: "center",
+            marginBottom: "16px",
+            padding: "8px 12px",
+            borderRadius: "var(--tc-radius-sm)",
+            background: "rgba(80,140,220,0.10)",
+            border: "1px solid rgba(80,140,220,0.3)",
           }}
         >
-          {locale === "fr" ? "Statut facturation" : "Billing status"}
-        </span>
-        {BILLABLE_FILTERS.map((f) => {
-          const n = billableCounts[f.id] ?? 0;
-          const active = billableFilter === f.id;
-          return (
-            <button
-              key={f.id}
-              onClick={() => setBillableFilter(f.id)}
-              style={{
-                padding: "5px 10px",
-                fontSize: "10px",
-                fontWeight: 600,
-                fontFamily: "inherit",
-                borderRadius: "var(--tc-radius-sm)",
-                cursor: "pointer",
-                background: active ? "var(--tc-blue)" : "var(--tc-input)",
-                color: active ? "#fff" : "var(--tc-text-muted)",
-                border: active ? "none" : "1px solid var(--tc-border)",
-              }}
-            >
-              {locale === "fr" ? f.labelFr : f.labelEn} ({n})
-            </button>
-          );
-        })}
-      </div>
+          <span style={{ fontSize: "11px", color: "var(--tc-text)" }}>
+            {locale === "fr" ? "Filtré par facturation : " : "Filtered by billing: "}
+            <strong>
+              {locale === "fr"
+                ? BILLABLE_FILTERS.find((f) => f.id === billableFilter)?.labelFr
+                : BILLABLE_FILTERS.find((f) => f.id === billableFilter)?.labelEn}
+            </strong>{" "}
+            ({billableCounts[billableFilter] ?? 0})
+          </span>
+          <button
+            onClick={() => { setBillableFilter("all"); router.replace("/assets"); }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              marginLeft: "auto",
+              padding: "3px 8px",
+              fontSize: "10px",
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              borderRadius: "var(--tc-radius-sm)",
+              background: "var(--tc-input)",
+              color: "var(--tc-text-muted)",
+              border: "1px solid var(--tc-border)",
+            }}
+          >
+            <X size={11} /> {locale === "fr" ? "Tout afficher" : "Show all"}
+          </button>
+        </div>
+      )}
 
-      {/* Search */}
-      <div style={{ marginBottom: "16px", position: "relative" }}>
-        <Search size={13} style={{ position: "absolute", left: "10px", top: "9px", color: "var(--tc-text-muted)" }} />
-        <input value={search} onChange={e => setSearch(e.target.value)}
-          placeholder={tr("searchAssets", locale)}
-          style={{ ...inputStyle, paddingLeft: "30px" }} />
-      </div>
+      {/* Normal view: the dense virtualised inventory (table/list, facets,
+          grouping, selection, drawer). The Corbeille keeps the card list below
+          because it needs reactivate/purge actions the drawer doesn't carry. */}
+      {!showTrash && (
+        <InventoryView
+          assets={baseAssets}
+          loading={loading}
+          locale={locale}
+          onEdit={openEdit}
+          onMergeIds={onMergeIds}
+          onTrash={openDelete}
+          onTrashIds={onTrashIds}
+          onRefresh={loadData}
+        />
+      )}
 
-      {/* Assets list */}
-      {loading ? (
+      {/* Trash view — card list (reactivate / purge) */}
+      {showTrash && (loading ? (
         <div style={{ textAlign: "center", padding: "40px", color: "var(--tc-text-muted)" }}>
           <Loader2 size={20} className="animate-spin" style={{ margin: "0 auto 8px" }} /> {tr("assets_loading", locale)}
         </div>
@@ -1424,6 +1498,17 @@ function AssetsPageInner() {
                           }}>{lbl}{tail}</span>
                         );
                       })()}
+                      {/* User tags — click a tag to filter the inventory by it. */}
+                      {(a.tags || []).filter(isUserTag).map(t => (
+                        <span key={t}
+                          onClick={(e) => { e.stopPropagation(); setSearch(t); }}
+                          title={locale === "fr" ? `Filtrer par « ${t} »` : `Filter by "${t}"`}
+                          style={{ fontSize: "8px", fontWeight: 600, padding: "1px 5px", borderRadius: "3px",
+                            cursor: "pointer", background: "rgba(80,140,220,0.12)", color: "#6fa3e0",
+                            border: "1px solid rgba(80,140,220,0.3)" }}>
+                          #{t}
+                        </span>
+                      ))}
                     </div>
                     <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                       {a.ip_addresses.length > 0 && <span style={{ fontFamily: "monospace" }}>{a.ip_addresses.join(", ")}</span>}
@@ -1480,7 +1565,7 @@ function AssetsPageInner() {
 
         {/* Phase 10c — popup retiré : la page dédiée /assets/[id] le remplace. */}
         </div>
-      )}
+      ))}
 
       {/* ═══ Add/Edit Modal ═══ */}
       {showModal && (
@@ -1668,6 +1753,48 @@ function AssetsPageInner() {
                   <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                     placeholder={tr("assets_notesPlaceholder", locale)}
                     style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }} />
+                </div>
+
+                {/* Tags — chip input. Enter/comma commits a chip; backspace on an
+                    empty field pops the last one. Used to filter the inventory. */}
+                <div>
+                  <label style={labelStyle}>Tags</label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", alignItems: "center",
+                    padding: "5px 6px", background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                    borderRadius: "var(--tc-radius-sm)" }}>
+                    {form.tags.map(t => (
+                      <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: "3px",
+                        fontSize: "10px", fontWeight: 600, padding: "2px 6px", borderRadius: "3px",
+                        background: "rgba(80,140,220,0.15)", color: "var(--tc-text)", border: "1px solid rgba(80,140,220,0.3)" }}>
+                        {t}
+                        <X size={10} style={{ cursor: "pointer" }} onClick={() =>
+                          setForm(f => ({ ...f, tags: f.tags.filter(x => x !== t) }))} />
+                      </span>
+                    ))}
+                    <input
+                      value={tagDraft}
+                      onChange={e => setTagDraft(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const t = tagDraft.trim().toLowerCase().replace(/\s+/g, "-");
+                          if (t && isUserTag(t) && !form.tags.includes(t)) {
+                            setForm(f => ({ ...f, tags: [...f.tags, t] }));
+                          }
+                          setTagDraft("");
+                        } else if (e.key === "Backspace" && !tagDraft && form.tags.length) {
+                          setForm(f => ({ ...f, tags: f.tags.slice(0, -1) }));
+                        }
+                      }}
+                      placeholder={form.tags.length ? "" : (locale === "fr" ? "Ajouter un tag (Entrée)…" : "Add a tag (Enter)…")}
+                      style={{ flex: 1, minWidth: "110px", border: "none", outline: "none", background: "transparent",
+                        color: "var(--tc-text)", fontSize: "11px", fontFamily: "inherit", padding: "2px" }}
+                    />
+                  </div>
+                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "3px", fontStyle: "italic" }}>
+                    {locale === "fr" ? "Entrée ou virgule pour valider — sert à filtrer et rechercher l'inventaire."
+                                     : "Enter or comma to add — used to filter and search the inventory."}
+                  </div>
                 </div>
 
                 {/* Buttons */}

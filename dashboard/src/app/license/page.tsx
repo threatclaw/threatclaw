@@ -26,6 +26,7 @@
 //   POST /api/auth/password                  — change password
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Copy,
   RefreshCw,
@@ -146,6 +147,7 @@ function gaugeColor(ratio: number): string {
 export default function LicensePage() {
   const locale = useLocale();
   const fr = locale === "fr";
+  const router = useRouter();
 
   const [instance, setInstance] = useState<InstanceInfo | null>(null);
   const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(null);
@@ -519,6 +521,15 @@ export default function LicensePage() {
               />
             </div>
           )}
+          {/* Jump to the inventory pre-filtered to the billed assets, so the
+              operator can see exactly which hosts count toward the cap. */}
+          <div style={{ marginTop: "10px" }}>
+            <ActionButton
+              onClick={() => router.push("/assets?billing=billable")}
+              icon={<ExternalLink size={12} />}
+              label={fr ? "Voir les assets facturés" : "View billed assets"}
+            />
+          </div>
         </div>
 
         {overLimit && (

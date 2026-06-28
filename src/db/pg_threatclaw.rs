@@ -18,6 +18,17 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// V98 — pick a stable display colour for a freshly created tag. Deterministic
+/// on the label so the same tag always lands on the same colour, drawn from the
+/// ThreatClaw accent palette (blue/green/amber/violet/red/teal/pink/lime).
+fn tag_palette_color(label: &str) -> &'static str {
+    const PALETTE: &[&str] = &[
+        "#4b8ef0", "#3fb96b", "#d9a52f", "#9a6ff0", "#d9482f", "#2fb6b6", "#e06fae", "#8fbf3f",
+    ];
+    let sum: u32 = label.bytes().fold(0u32, |acc, b| acc.wrapping_add(b as u32));
+    PALETTE[(sum as usize) % PALETTE.len()]
+}
+
 /// Map a scan_queue row to its struct. Centralises the column order so
 /// every query above can rely on the same SELECT shape.
 fn scan_job_from_row(r: tokio_postgres::Row) -> ScanJob {
@@ -2597,8 +2608,8 @@ impl ThreatClawStore for PgBackend {
         conn.execute(
             r#"INSERT INTO assets (id, name, category, subcategory, role, criticality,
                 ip_addresses, mac_address, hostname, fqdn, url, os, mac_vendor,
-                services, source, sources, owner, location, tags, last_seen, inventory_status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20)
+                services, source, sources, owner, location, tags, last_seen, inventory_status, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20, $21)
             ON CONFLICT (id) DO UPDATE SET
                 -- Protect user-edited fields from auto-discovery overwrite
                 name = CASE WHEN 'name' = ANY(assets.user_modified) THEN assets.name
@@ -2643,11 +2654,16 @@ impl ThreatClawStore for PgBackend {
                          AND EXCLUDED.inventory_status != 'declared'
                         THEN 'observed_persistent'
                     ELSE EXCLUDED.inventory_status
-                END"#,
+                END,
+                -- Notes: operator-only field. Apply the incoming value when
+                -- present (re-editable), keep the existing note when the
+                -- caller sends NULL (every connector sync does). Never frozen
+                -- via user_modified — no connector ever writes notes.
+                notes = COALESCE(EXCLUDED.notes, assets.notes)"#,
             &[&a.id, &a.name, &a.category, &a.subcategory, &a.role, &a.criticality,
               &ips, &a.mac_address, &a.hostname, &a.fqdn, &a.url, &a.os, &a.mac_vendor,
               &a.services, &a.source, &source_arr, &a.owner, &a.location, &tags,
-              &new_inventory_status],
+              &new_inventory_status, &a.notes],
         ).await.map_err(query_err)?;
         Ok(a.id.clone())
     }
@@ -2985,6 +3001,162 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn set_asset_tags(&self, id: &str, labels: &[String]) -> Result<(), DatabaseError> {
+        // Normalise: trim, lowercase, drop empties + system flags + dupes.
+        // System flags live in assets.tags and are a separate concern.
+        let mut seen = std::collections::HashSet::new();
+        let clean: Vec<String> = labels
+            .iter()
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| {
+                !s.is_empty()
+                    && !matches!(s.as_str(), "possible-duplicate" | "public_ip" | "keep-separate")
+                    && seen.insert(s.clone())
+            })
+            .collect();
+
+        let mut conn = self.pool().get().await.map_err(pool_err)?;
+        let tx = conn.transaction().await.map_err(query_err)?;
+        // Resolve every label to a tag id (get-or-create with a palette colour).
+        let mut tag_ids: Vec<i64> = Vec::with_capacity(clean.len());
+        for label in &clean {
+            let color = tag_palette_color(label);
+            let row = tx
+                .query_one(
+                    "INSERT INTO tags (label, color) VALUES ($1, $2)
+                     ON CONFLICT (label) DO UPDATE SET label = EXCLUDED.label
+                     RETURNING id",
+                    &[&label, &color],
+                )
+                .await
+                .map_err(query_err)?;
+            tag_ids.push(row.get(0));
+        }
+        // Rewrite the link set for this asset: drop all, re-insert the wanted.
+        tx.execute("DELETE FROM asset_tags WHERE asset_id = $1", &[&id])
+            .await
+            .map_err(query_err)?;
+        for tag_id in &tag_ids {
+            tx.execute(
+                "INSERT INTO asset_tags (asset_id, tag_id) VALUES ($1, $2)
+                 ON CONFLICT DO NOTHING",
+                &[&id, tag_id],
+            )
+            .await
+            .map_err(query_err)?;
+        }
+        tx.commit().await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn list_tags(&self) -> Result<Vec<TagRecord>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT t.id, t.label, t.color, t.policy,
+                        COUNT(at.asset_id)::bigint AS usage_count
+                 FROM tags t
+                 LEFT JOIN asset_tags at ON at.tag_id = t.id
+                 GROUP BY t.id, t.label, t.color, t.policy
+                 ORDER BY usage_count DESC, t.label ASC",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| TagRecord {
+                id: r.get("id"),
+                label: r.get("label"),
+                color: r.get("color"),
+                policy: r
+                    .try_get::<_, serde_json::Value>("policy")
+                    .unwrap_or(serde_json::Value::Null),
+                usage_count: r.get("usage_count"),
+            })
+            .collect())
+    }
+
+    async fn get_or_create_tag(&self, label: &str) -> Result<i64, DatabaseError> {
+        let label = label.trim().to_lowercase();
+        let color = tag_palette_color(&label);
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO tags (label, color) VALUES ($1, $2)
+                 ON CONFLICT (label) DO UPDATE SET label = EXCLUDED.label
+                 RETURNING id",
+                &[&label, &color],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn bulk_add_tag(&self, asset_ids: &[String], label: &str) -> Result<(), DatabaseError> {
+        let label = label.trim().to_lowercase();
+        if label.is_empty()
+            || matches!(label.as_str(), "possible-duplicate" | "public_ip" | "keep-separate")
+            || asset_ids.is_empty()
+        {
+            return Ok(());
+        }
+        let color = tag_palette_color(&label);
+        let mut conn = self.pool().get().await.map_err(pool_err)?;
+        let tx = conn.transaction().await.map_err(query_err)?;
+        let tag_id: i64 = tx
+            .query_one(
+                "INSERT INTO tags (label, color) VALUES ($1, $2)
+                 ON CONFLICT (label) DO UPDATE SET label = EXCLUDED.label
+                 RETURNING id",
+                &[&label, &color],
+            )
+            .await
+            .map_err(query_err)?
+            .get(0);
+        // One statement: link the tag to every requested asset.
+        tx.execute(
+            "INSERT INTO asset_tags (asset_id, tag_id)
+             SELECT unnest($1::text[]), $2
+             ON CONFLICT DO NOTHING",
+            &[&asset_ids, &tag_id],
+        )
+        .await
+        .map_err(query_err)?;
+        tx.commit().await.map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn list_asset_user_tags(
+        &self,
+        asset_ids: &[String],
+    ) -> Result<Vec<AssetTagLink>, DatabaseError> {
+        if asset_ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT at.asset_id, t.id, t.label, t.color
+                 FROM asset_tags at
+                 JOIN tags t ON t.id = at.tag_id
+                 WHERE at.asset_id = ANY($1::text[])
+                 ORDER BY t.label ASC",
+                &[&asset_ids],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| AssetTagLink {
+                asset_id: r.get("asset_id"),
+                id: r.get("id"),
+                label: r.get("label"),
+                color: r.get("color"),
+            })
+            .collect())
+    }
+
     async fn set_asset_dedup_confidence(
         &self,
         id: &str,
@@ -3049,6 +3221,18 @@ impl ThreatClawStore for PgBackend {
                      merged_at    = NOW(), \
                      unmerged_at  = NULL",
             &[&alias_id, &canonical_id, &merged_by, &reason],
+        )
+        .await
+        .map_err(query_err)?;
+        // V98 — carry the alias's user tags (m2m) onto the canonical so a
+        // merge never loses them (the old union-on-merge did this when tags
+        // lived on assets.tags). The alias keeps its own links — harmless, the
+        // row is hidden.
+        conn.execute(
+            "INSERT INTO asset_tags (asset_id, tag_id) \
+                 SELECT $2, tag_id FROM asset_tags WHERE asset_id = $1 \
+             ON CONFLICT DO NOTHING",
+            &[&alias_id, &canonical_id],
         )
         .await
         .map_err(query_err)?;
