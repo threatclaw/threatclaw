@@ -705,9 +705,20 @@ export default function InvestigatePage() {
         }
         .inv-det-grid {
           display: grid;
-          grid-template-columns: 1fr 340px;
+          /* minmax(0, 1fr): let the main column shrink BELOW its content's
+             min-content width. Without the 0 minimum, a single wide non-wrapping
+             child (a long IOC / command line in the timeline, a fixed-width
+             graph) forces the column wider than the viewport, pushing the 340px
+             side panel (HITL / remediation) off-screen and creating a horizontal
+             scroll. The 0 lets inner content ellipsize/scroll within the column. */
+          grid-template-columns: minmax(0, 1fr) 340px;
           gap: 24px;
           align-items: start;
+        }
+        /* Each column is its own min-content context; min-width:0 lets the
+           ellipsis on timeline rows engage instead of blowing the grid out. */
+        .inv-det-grid > * {
+          min-width: 0;
         }
         @media (max-width: 900px) {
           .inv-det-grid {
