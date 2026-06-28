@@ -283,6 +283,17 @@ pub struct LogRecord {
     pub data: serde_json::Value,
 }
 
+/// A claimed row from the durable `ingest_queue` (Phase 2a async ingestion):
+/// the raw, already-gzip-decoded webhook payload plus its source type. Workers
+/// feed `body` back through the existing `process_webhook_trusted` off the
+/// request thread.
+#[derive(Debug, Clone)]
+pub struct IngestRow {
+    pub id: i64,
+    pub source: String,
+    pub body: Vec<u8>,
+}
+
 /// Hunt-panel search filters. All fields are optional; the caller composes
 /// what they have. Time bounds default to the last 24 hours when omitted so
 /// an empty filter set does not accidentally scan the whole hypertable.
@@ -1106,6 +1117,37 @@ pub trait ThreatClawStore: Send + Sync {
         data: &serde_json::Value,
         time: &str,
     ) -> Result<i64, DatabaseError>;
+
+    // ── Phase 2a — durable async ingestion queue ──
+    // Default impls keep non-Postgres backends compiling (Postgres overrides all
+    // four). The hot path enqueues; a worker pool claims/processes/deletes.
+
+    /// Write-ahead: persist a raw (gzip-decoded) webhook payload, return its id.
+    async fn enqueue_ingest(&self, _source: &str, _body: &[u8]) -> Result<i64, DatabaseError> {
+        Err(DatabaseError::Query(
+            "enqueue_ingest unsupported on this backend".into(),
+        ))
+    }
+
+    /// Atomically claim up to `limit` unclaimed payloads for this worker
+    /// (`FOR UPDATE SKIP LOCKED`), marking them claimed and returning their bodies.
+    async fn claim_ingest_batch(
+        &self,
+        _worker_id: &str,
+        _limit: i64,
+    ) -> Result<Vec<IngestRow>, DatabaseError> {
+        Ok(Vec::new())
+    }
+
+    /// Delete processed queue rows by id.
+    async fn delete_ingest(&self, _ids: &[i64]) -> Result<u64, DatabaseError> {
+        Ok(0)
+    }
+
+    /// Number of unclaimed payloads currently queued (for backpressure / metrics).
+    async fn ingest_queue_depth(&self) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
 
     /// Insert a sigma alert directly (for testing/simulation).
     async fn insert_sigma_alert(

@@ -1566,6 +1566,80 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get(0))
     }
 
+    // ── Phase 2a — durable async ingestion queue ──
+
+    async fn enqueue_ingest(&self, source: &str, body: &[u8]) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "INSERT INTO ingest_queue (source, body) VALUES ($1, $2) RETURNING id",
+                &[&source, &body],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
+    async fn claim_ingest_batch(
+        &self,
+        worker_id: &str,
+        limit: i64,
+    ) -> Result<Vec<IngestRow>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // FOR UPDATE SKIP LOCKED lets N workers drain concurrently without
+        // stepping on each other; the partial index keeps the claim cheap.
+        let rows = conn
+            .query(
+                "WITH claimed AS (
+                     SELECT id FROM ingest_queue
+                     WHERE claimed_at IS NULL
+                     ORDER BY received_at ASC
+                     LIMIT $2
+                     FOR UPDATE SKIP LOCKED
+                 )
+                 UPDATE ingest_queue q
+                 SET claimed_by = $1, claimed_at = now()
+                 FROM claimed c
+                 WHERE q.id = c.id
+                 RETURNING q.id, q.source, q.body",
+                &[&worker_id, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows
+            .iter()
+            .map(|r| IngestRow {
+                id: r.get::<_, i64>(0),
+                source: r.get::<_, String>(1),
+                body: r.get::<_, Vec<u8>>(2),
+            })
+            .collect())
+    }
+
+    async fn delete_ingest(&self, ids: &[i64]) -> Result<u64, DatabaseError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let n = conn
+            .execute("DELETE FROM ingest_queue WHERE id = ANY($1)", &[&ids])
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
+    async fn ingest_queue_depth(&self) -> Result<i64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let row = conn
+            .query_one(
+                "SELECT count(*) FROM ingest_queue WHERE claimed_at IS NULL",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(row.get(0))
+    }
+
     async fn insert_sigma_alert(
         &self,
         rule_id: &str,
