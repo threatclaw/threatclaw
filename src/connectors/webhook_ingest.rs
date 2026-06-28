@@ -25,7 +25,7 @@ const MAX_BODY_SIZE_LOGS: usize = 1_048_576; // 1 MB for Zeek/Suricata bulk log 
 /// scheduled tasks, services, windows event logs, DNS cache, ...) in one POST.
 /// On a DC with full audit logging the payload routinely exceeds 1 MB; 16 MB
 /// accommodates that plus headroom for VDI / Citrix hosts.
-const MAX_BODY_SIZE_ENDPOINT: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_BODY_SIZE_ENDPOINT: usize = 16 * 1024 * 1024;
 
 /// Decode a gzip body, bounding the decompressed output to `max` bytes
 /// (anti gzip-bomb). Reads at most `max + 1` bytes then fails if the cap is
