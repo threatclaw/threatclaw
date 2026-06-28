@@ -422,6 +422,28 @@ pub struct NewAsset {
     pub notes: Option<String>,
 }
 
+/// V98 — a first-class tag (entity), carrying a colour and a reserved policy
+/// slot (criticality default / detection scope / licence binding) for v2.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagRecord {
+    pub id: i64,
+    pub label: String,
+    pub color: String,
+    #[serde(default)]
+    pub policy: serde_json::Value,
+    pub usage_count: i64,
+}
+
+/// V98 — one asset↔tag link, flattened with the tag's display fields, for the
+/// listing payload (`user_tags` on each asset).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetTagLink {
+    pub asset_id: String,
+    pub id: i64,
+    pub label: String,
+    pub color: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InternalNetwork {
     pub id: i64,
@@ -1344,13 +1366,35 @@ pub trait ThreatClawStore: Send + Sync {
     /// `possible-duplicate` flag once the operator has reviewed it.
     async fn remove_asset_tag(&self, id: &str, tag: &str) -> Result<(), DatabaseError>;
 
-    /// Replace the operator-managed tags on an asset with `tags`, while
-    /// preserving the platform-managed system tags (`possible-duplicate`,
-    /// `public_ip`, `keep-separate`) so a manual edit never clears them.
-    /// Unlike `upsert_asset` (which unions tags and can only add), this is a
-    /// true set — it is how the dashboard adds *and removes* tags. Marks
-    /// `tags` as user-modified.
-    async fn set_asset_tags(&self, id: &str, tags: &[String]) -> Result<(), DatabaseError>;
+    /// Replace the operator-managed tags on an asset with `labels` (V98 tag
+    /// entity). Resolves each label to a `tags` row (get-or-create, palette
+    /// colour assigned on creation) and rewrites the `asset_tags` link rows in
+    /// a transaction. The system flags in `assets.tags` (`possible-duplicate`,
+    /// `public_ip`, `keep-separate`) are a separate concern and untouched.
+    /// This is how the dashboard adds *and removes* user tags.
+    async fn set_asset_tags(&self, id: &str, labels: &[String]) -> Result<(), DatabaseError>;
+
+    /// List every tag with its colour and live usage count (number of assets
+    /// carrying it). Drives the dashboard facet panel and colour lookup.
+    async fn list_tags(&self) -> Result<Vec<TagRecord>, DatabaseError>;
+
+    /// Get-or-create a tag by label, returning its id. A palette colour is
+    /// assigned deterministically the first time a label is seen; an existing
+    /// row keeps its colour.
+    async fn get_or_create_tag(&self, label: &str) -> Result<i64, DatabaseError>;
+
+    /// Attach `label` to every asset in `asset_ids` (get-or-create the tag,
+    /// then link, ignoring assets that already carry it). Used by the
+    /// multi-select "add a tag" bulk action.
+    async fn bulk_add_tag(&self, asset_ids: &[String], label: &str)
+    -> Result<(), DatabaseError>;
+
+    /// Fetch the user tags (label + colour) for a set of assets, for the
+    /// listing payload. Returns one row per (asset, tag) link.
+    async fn list_asset_user_tags(
+        &self,
+        asset_ids: &[String],
+    ) -> Result<Vec<AssetTagLink>, DatabaseError>;
 
     /// Sprint 3 #2 — RSSI override of the seed/auto-detected criticality.
     /// Updates the canonical `assets` row; the caller is responsible for

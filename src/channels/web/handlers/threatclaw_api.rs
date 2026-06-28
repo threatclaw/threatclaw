@@ -6796,6 +6796,19 @@ pub async fn assets_list_handler(
     match store.list_assets(category, status, limit, offset).await {
         Ok(assets) => {
             let pages = (total + limit - 1) / limit;
+            // V98 — fetch the user tags (label + colour) for this page in one
+            // query and group them by asset id, so each row carries its
+            // `user_tags`. `assets.tags` now only holds the system flags.
+            let ids: Vec<String> = assets.iter().map(|a| a.id.clone()).collect();
+            let mut tags_by_asset: std::collections::HashMap<String, Vec<serde_json::Value>> =
+                std::collections::HashMap::new();
+            if let Ok(links) = store.list_asset_user_tags(&ids).await {
+                for l in links {
+                    tags_by_asset.entry(l.asset_id).or_default().push(serde_json::json!({
+                        "id": l.id, "label": l.label, "color": l.color,
+                    }));
+                }
+            }
             // Phase 11h hotfix (2026-05-07) — strip the heavy `software`
             // array (osquery package dumps that grow to several MB per
             // host and accumulate duplicates across syncs) and
@@ -6808,10 +6821,12 @@ pub async fn assets_list_handler(
             let trimmed: Vec<serde_json::Value> = assets
                 .into_iter()
                 .map(|a| {
+                    let user_tags = tags_by_asset.remove(&a.id).unwrap_or_default();
                     let mut v = serde_json::to_value(&a).unwrap_or_default();
                     if let Some(obj) = v.as_object_mut() {
                         obj.insert("software".into(), serde_json::Value::Array(vec![]));
                         obj.insert("services".into(), serde_json::Value::Array(vec![]));
+                        obj.insert("user_tags".into(), serde_json::Value::Array(user_tags));
                     }
                     v
                 })
@@ -7418,6 +7433,48 @@ pub async fn asset_tags_set_handler(
         .unwrap_or_default();
     match store.set_asset_tags(&id, &tags).await {
         Ok(_) => Ok(Json(serde_json::json!({ "status": "ok", "id": id, "tags": tags }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// GET /api/tc/tags — list every tag with its colour and live usage count.
+/// Drives the inventory facet panel and the per-asset tag colours.
+pub async fn tags_list_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    match store.list_tags().await {
+        Ok(tags) => Ok(Json(serde_json::json!({ "tags": tags }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
+/// POST /api/tc/assets/bulk-tag — attach one tag to many assets at once.
+/// Body: { asset_ids: [String, ...], label: String }. Used by the inventory's
+/// multi-select "add a tag" action.
+pub async fn assets_bulk_tag_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let asset_ids: Vec<String> = body["asset_ids"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let label = body["label"].as_str().unwrap_or("").trim().to_string();
+    if asset_ids.is_empty() || label.is_empty() {
+        return Ok(Json(
+            serde_json::json!({ "error": "asset_ids and label are required" }),
+        ));
+    }
+    match store.bulk_add_tag(&asset_ids, &label).await {
+        Ok(_) => Ok(Json(
+            serde_json::json!({ "status": "ok", "count": asset_ids.len(), "label": label }),
+        )),
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
 }
