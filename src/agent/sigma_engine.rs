@@ -2040,6 +2040,21 @@ async fn enrol_observed_hostnames(
     logs: &[crate::db::threatclaw_store::LogRecord],
 ) {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Declared internal networks — used to keep public scanner IPs out of the
+    // inventory (see the IP guard below). Loaded once for the whole batch.
+    let networks: Vec<crate::agent::ip_classifier::NetworkRange> = store
+        .list_internal_networks()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|n| {
+            crate::agent::ip_classifier::NetworkRange::from_cidr(
+                &n.cidr,
+                n.label.as_deref().unwrap_or(""),
+                &n.zone,
+            )
+        })
+        .collect();
     for log in logs {
         let Some(h) = log.hostname.as_deref() else {
             continue;
@@ -2048,6 +2063,16 @@ async fn enrol_observed_hostnames(
             continue;
         }
         if looks_like_program_or_container_id(h) {
+            continue;
+        }
+        // A WAN-facing firewall logs every Internet scanner that hits it; when
+        // such an IP lands in the syslog `host` slot, enrolling it creates a
+        // billable junk asset that reappears every cycle. Only enrol an IP-shaped
+        // host when it classifies as internal (declared network / RFC1918 / ULA);
+        // drop External and special addresses. Real (non-IP) hostnames pass through.
+        if h.parse::<std::net::IpAddr>().is_ok()
+            && !crate::agent::ip_classifier::ip_is_enrollable(h, &networks, &[])
+        {
             continue;
         }
         // A syslog `host` value that still carries key=value / quoted fragments
