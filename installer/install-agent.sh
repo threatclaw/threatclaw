@@ -354,8 +354,9 @@ fi
 # this is safe regardless of inventory size. Each chunk is parsed in isolation
 # so a malformed table only blanks itself out.
 TC_WORKDIR="\$WORKDIR" TC_HOSTNAME="\$HOSTNAME" TC_AGENT_ID="\$AGENT_ID" python3 << 'PYEOF'
-import json, os
+import json, os, hashlib, time
 workdir = os.environ["TC_WORKDIR"]
+STATE = "/var/lib/threatclaw/state.json"
 def load(fname, default):
     try:
         with open(os.path.join(workdir, fname)) as f:
@@ -363,6 +364,20 @@ def load(fname, default):
         return v if v is not None else default
     except Exception:
         return default
+# Persisted delta state: a content hash per inventory section + last full
+# refresh time. Missing/corrupt -> treat as empty (first sync ships everything).
+try:
+    with open(STATE) as f:
+        state = json.loads(f.read() or "{}")
+    if not isinstance(state, dict):
+        state = {}
+except Exception:
+    state = {}
+hashes = state.get("hashes", {})
+if not isinstance(hashes, dict):
+    hashes = {}
+now = int(time.time())
+full_refresh = (now - int(state.get("last_full", 0) or 0)) > 86400  # 1x/day self-heal
 # Software: union of all available package sources (deb / rpm / programs).
 software = []
 for k in ("soft_deb.json", "soft_rpm.json", "soft_prog.json"):
@@ -370,39 +385,85 @@ for k in ("soft_deb.json", "soft_rpm.json", "soft_prog.json"):
 # os_version: osquery returns a list with one row.
 os_rows = load("os_ver.json", [])
 os_version = os_rows[0] if os_rows else {}
+# hostname/agent_id/ts are ALWAYS present = heartbeat. Volatile detection inputs
+# (sockets, listening ports, dns) are ALWAYS shipped (re-checked vs threat intel
+# every cycle, never delta'd). Inventory below is shipped only when its hash
+# changed (or on the daily full refresh).
 payload = {
     "hostname": os.environ["TC_HOSTNAME"],
     "agent_id": os.environ["TC_AGENT_ID"],
-    "software": software,
+    "platform": "linux",
+    "ts": now,
     "process_open_sockets": load("sockets.json", []),
     "listening_ports": load("ports.json", []),
+    "dns_cache": load("dns.json", []),
+}
+inventory = {
+    "software": software,
     "users": load("users.json", []),
     "logged_in_users": load("logins.json", []),
     "scheduled_tasks": load("crontab.json", []),
     "authorized_keys": load("ssh_keys.json", []),
     "os_version": os_version,
     "interface_details": load("ifaces.json", []),
-    "dns_cache": load("dns.json", []),
     "docker_containers": load("docker.json", []),
 }
+new_hashes = dict(hashes)
+for name, val in inventory.items():
+    canon = json.dumps(val, sort_keys=True, separators=(",", ":"))
+    h = hashlib.sha256(canon.encode("utf-8")).hexdigest()
+    if full_refresh or new_hashes.get(name) != h:
+        payload[name] = val
+        new_hashes[name] = h
+last_full = now if full_refresh else int(state.get("last_full", 0) or 0)
 with open(os.path.join(workdir, "payload.json"), "w") as f:
     json.dump(payload, f)
+# Candidate state — promoted to STATE by the sync script only after a 200, so a
+# failed sync re-sends the exact same delta next cycle (nothing lost).
+with open(os.path.join(workdir, "state_new.json"), "w") as f:
+    json.dump({"hashes": new_hashes, "last_full": last_full}, f)
 PYEOF
 
-# Send to ThreatClaw — header takes precedence over query token; the query
-# arg is left as a fallback for proxies that strip custom headers. The payload
-# is read from a file with @, so its size never hits the argv limit either.
-curl -fsSL -X POST \\
+# Negotiate gzip: only compress if the server advertises accepts_gzip in its
+# manifest (version-skew safe). Substring match avoids a jq dependency.
+TC_ACCEPTS_GZIP=false
+MANIFEST=\$(curl -fsSL -k --max-time 10 -H "X-Webhook-Token: \$TC_TOKEN" \\
+  "\${TC_URL}/api/tc/agent/manifest?platform=linux&token=\$TC_TOKEN" 2>/dev/null || echo "")
+case "\$MANIFEST" in
+  *'"accepts_gzip":true'*|*'"accepts_gzip": true'*) TC_ACCEPTS_GZIP=true ;;
+esac
+
+# Send to ThreatClaw — header takes precedence over query token; the query arg
+# is a fallback for proxies that strip custom headers. The payload is read from
+# a file with @, so its size never hits the argv limit. gzip if negotiated, with
+# a clear plaintext fallback. State is promoted only after a 200 (no lost delta).
+TC_PAYLOAD="\$WORKDIR/payload.json"
+TC_ENC_HEADER=""
+if [ "\$TC_ACCEPTS_GZIP" = "true" ] && command -v gzip >/dev/null 2>&1; then
+  if gzip -c "\$WORKDIR/payload.json" > "\$WORKDIR/payload.json.gz" 2>/dev/null; then
+    TC_PAYLOAD="\$WORKDIR/payload.json.gz"
+    TC_ENC_HEADER="-H Content-Encoding:gzip"
+  fi
+fi
+TC_HTTP=\$(curl -sk -o /dev/null -w '%{http_code}' -X POST \\
   -H "Content-Type: application/json" \\
   -H "X-Webhook-Token: \$TC_TOKEN" \\
-  --data-binary @"\$WORKDIR/payload.json" \\
-  "\${TC_URL}/api/tc/webhook/ingest/osquery?token=\$TC_TOKEN" \\
-  --max-time 30 \\
-  -k \\
-  -o /dev/null -w "HTTP %{http_code}" 2>/dev/null && echo " — sync OK" || echo " — sync FAILED"
+  \$TC_ENC_HEADER \\
+  --data-binary @"\$TC_PAYLOAD" \\
+  --max-time 120 \\
+  "\${TC_URL}/api/tc/webhook/ingest/osquery?token=\$TC_TOKEN" 2>/dev/null || echo "000")
+if [ "\$TC_HTTP" = "200" ]; then
+  install -d -m 0700 /var/lib/threatclaw 2>/dev/null || true
+  cp "\$WORKDIR/state_new.json" /var/lib/threatclaw/state.json 2>/dev/null || true
+  echo "HTTP 200 (gzip=\$TC_ACCEPTS_GZIP) — sync OK"
+else
+  echo "HTTP \$TC_HTTP — sync FAILED (state preserved)"
+fi
 SYNCEOF
 
   chmod +x "$script"
+  # Delta-sync state dir (hashes + last full refresh). 0700: root-only.
+  install -d -m 0700 /var/lib/threatclaw
   log "Sync script created at $script"
 }
 
