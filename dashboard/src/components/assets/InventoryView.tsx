@@ -291,8 +291,29 @@ export default function InventoryView(props: Props) {
     sort: { key: k, dir: view.sort.key === k && view.sort.dir === "asc" ? "desc" : "asc" },
   });
 
+  // Built-in saved views (apply-only presets, à la mockup). Custom/named
+  // presets ("+ Sauvegarder") are a follow-up.
+  const VIEWS: { id: string; fr: string; en: string; apply: Partial<ViewState> }[] = [
+    { id: "all", fr: "Toutes", en: "All", apply: { type: "all", filters: EMPTY_FILTERS, group: "type", sort: { key: "name", dir: "asc" } } },
+    { id: "winsrv", fr: "Serveurs · par OS", en: "Servers · by OS", apply: { type: "srv", filters: EMPTY_FILTERS, group: "os", sort: { key: "os", dir: "asc" } } },
+    { id: "passif", fr: "Réseau passif externe", en: "External passive network", apply: { type: "all", filters: { ...EMPTY_FILTERS, source: ["passif"] }, group: "subnet", sort: { key: "ip", dir: "asc" } } },
+    { id: "agents", fr: "Agents osquery", en: "osquery agents", apply: { type: "all", filters: { ...EMPTY_FILTERS, source: ["agent"] }, group: "none", sort: { key: "name", dir: "asc" } } },
+  ];
+
   return (
     <div onClick={() => setOpenMenu(null)}>
+      {/* Saved views (presets) */}
+      <div style={{ display: "flex", gap: "7px", alignItems: "center", flexWrap: "wrap", marginBottom: "14px" }}>
+        <span style={{ fontSize: "10px", letterSpacing: "1.5px", color: "var(--tc-text-muted)" }}>{fr(l) ? "VUES" : "VIEWS"}</span>
+        {VIEWS.map(v => (
+          <button key={v.id} onClick={() => { setSearch(""); patch(v.apply); }}
+            style={{ fontSize: "12px", fontFamily: "inherit", cursor: "pointer", borderRadius: "20px",
+              padding: "6px 13px", background: "transparent", color: "var(--tc-text-sec)", border: "1px solid var(--tc-border)" }}>
+            {fr(l) ? v.fr : v.en}
+          </button>
+        ))}
+      </div>
+
       {/* Type pills */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "14px" }}>
         {(["all", "srv", "pc", "net", "unk"] as const).map(t => {
@@ -410,8 +431,8 @@ export default function InventoryView(props: Props) {
 
         {/* Mode toggle */}
         <div style={{ display: "flex", border: "1px solid var(--tc-border)", borderRadius: "var(--tc-radius-sm)", overflow: "hidden" }}>
-          <div onClick={() => patch({ mode: "table" })} style={segStyle(view.mode === "table")}><Table2 size={13} /> {fr(l) ? "Tableau" : "Table"}</div>
-          <div onClick={() => patch({ mode: "list" })} style={segStyle(view.mode === "list")}><List size={13} /> {fr(l) ? "Liste" : "List"}</div>
+          <div className="tc-kbd" {...kbd(() => patch({ mode: "table" }))} aria-pressed={view.mode === "table"} onClick={() => patch({ mode: "table" })} style={segStyle(view.mode === "table")}><Table2 size={13} /> {fr(l) ? "Tableau" : "Table"}</div>
+          <div className="tc-kbd" {...kbd(() => patch({ mode: "list" }))} aria-pressed={view.mode === "list"} onClick={() => patch({ mode: "list" })} style={segStyle(view.mode === "list")}><List size={13} /> {fr(l) ? "Liste" : "List"}</div>
         </div>
       </div>
 
@@ -471,7 +492,9 @@ export default function InventoryView(props: Props) {
               if (row.kind === "group") {
                 const isCol = !!collapsed[row.label];
                 return (
-                  <div key={vi.key} style={{ ...style, display: "flex", alignItems: "center", gap: "8px", padding: "8px 6px", cursor: "pointer", color: "var(--tc-text-sec)" }}
+                  <div key={vi.key} className="tc-kbd" {...kbd(() => setCollapsed(c => ({ ...c, [row.label]: !c[row.label] })))}
+                    aria-expanded={!isCol}
+                    style={{ ...style, display: "flex", alignItems: "center", gap: "8px", padding: "8px 6px", cursor: "pointer", color: "var(--tc-text-sec)" }}
                     onClick={() => setCollapsed(c => ({ ...c, [row.label]: !c[row.label] }))}>
                     {isCol ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                     <span style={{ fontSize: "12px", color: "var(--tc-text)" }}>{row.label}</span>
@@ -542,6 +565,18 @@ function Rd({ on }: { on: boolean }) {
       background: on ? "radial-gradient(circle, var(--tc-blue) 0 4px, transparent 5px)" : "transparent" }} />
   );
 }
+// Keyboard activation for clickable non-button elements (rows, group headers,
+// menu items, drawer actions): Enter / Space trigger the same action. Pair with
+// className "tc-kbd" for the focus-visible outline (globals.css).
+function kbd(act: () => void) {
+  return {
+    tabIndex: 0,
+    role: "button" as const,
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(); }
+    },
+  };
+}
 function segStyle(on: boolean): React.CSSProperties {
   return {
     display: "flex", alignItems: "center", gap: "6px", padding: "8px 12px", fontSize: "12px", cursor: "pointer",
@@ -563,10 +598,12 @@ function TableRow({ a, style, grid, cols, l, sel, onSel, onOpen, tagPill }: {
 }) {
   const cb = critBucket(a.criticality);
   return (
-    <div style={{ ...style, display: "grid", gridTemplateColumns: grid, gap: "10px", alignItems: "center",
+    <div className="tc-kbd" {...kbd(onOpen)} aria-label={a.name}
+      style={{ ...style, display: "grid", gridTemplateColumns: grid, gap: "10px", alignItems: "center",
       padding: "0 12px", borderBottom: "1px solid var(--tc-border)", cursor: "pointer",
       background: sel ? "rgba(75,142,240,0.08)" : undefined }} onClick={onOpen}>
-      <div onClick={e => { e.stopPropagation(); onSel(); }}><Cb on={sel} /></div>
+      <div className="tc-kbd" {...kbd(onSel)} aria-label={fr(l) ? "Sélectionner" : "Select"}
+        onClick={e => { e.stopPropagation(); onSel(); }}><Cb on={sel} /></div>
       <div style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--tc-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
       {cols.ip && <div style={{ fontFamily: "monospace", fontSize: "11.5px", color: "var(--tc-text-sec)" }}>{a.ip_addresses?.[0] || "—"}</div>}
       {cols.os && <div style={{ fontSize: "11.5px", color: "var(--tc-text-sec)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.os || "—"}</div>}
@@ -589,10 +626,12 @@ function ListRow({ a, style, l, sel, onSel, onOpen, onEdit, onTrash, tagPill }: 
   const Icon = TYPE_ICON[t];
   const sub = [a.ip_addresses?.[0], a.hostname, a.os, sourceLabel(sourceBucket(a), l)].filter(Boolean).join("  ·  ");
   return (
-    <div className="tc-listrow" style={{ ...style, display: "flex", alignItems: "center", gap: "12px", padding: "0 12px",
+    <div className="tc-listrow tc-kbd" {...kbd(onOpen)} aria-label={a.name}
+      style={{ ...style, display: "flex", alignItems: "center", gap: "12px", padding: "0 12px",
       borderRadius: "10px", cursor: "pointer", background: sel ? "rgba(75,142,240,0.08)" : undefined,
       borderBottom: "1px solid var(--tc-border)" }} onClick={onOpen}>
-      <div onClick={e => { e.stopPropagation(); onSel(); }}><Cb on={sel} /></div>
+      <div className="tc-kbd" {...kbd(onSel)} aria-label={fr(l) ? "Sélectionner" : "Select"}
+        onClick={e => { e.stopPropagation(); onSel(); }}><Cb on={sel} /></div>
       <span style={{ color: TYPE_COLOR[t], display: "flex" }}><Icon size={16} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
@@ -603,8 +642,8 @@ function ListRow({ a, style, l, sel, onSel, onOpen, onEdit, onTrash, tagPill }: 
         </div>
         <div className="tc-sub" style={{ fontSize: "11px", color: "var(--tc-text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>
       </div>
-      <span onClick={e => { e.stopPropagation(); onEdit(a); }} title={fr(l) ? "Modifier" : "Edit"} style={{ color: "var(--tc-text-muted)", display: "flex", padding: "4px" }}><Pencil size={14} /></span>
-      <span onClick={e => { e.stopPropagation(); onTrash(a); }} title={fr(l) ? "Corbeille" : "Trash"} style={{ color: "var(--tc-text-muted)", display: "flex", padding: "4px" }}><Trash2 size={14} /></span>
+      <span className="tc-kbd" {...kbd(() => onEdit(a))} onClick={e => { e.stopPropagation(); onEdit(a); }} title={fr(l) ? "Modifier" : "Edit"} aria-label={fr(l) ? "Modifier" : "Edit"} style={{ color: "var(--tc-text-muted)", display: "flex", padding: "4px" }}><Pencil size={14} /></span>
+      <span className="tc-kbd" {...kbd(() => onTrash(a))} onClick={e => { e.stopPropagation(); onTrash(a); }} title={fr(l) ? "Corbeille" : "Trash"} aria-label={fr(l) ? "Corbeille" : "Trash"} style={{ color: "var(--tc-text-muted)", display: "flex", padding: "4px" }}><Trash2 size={14} /></span>
     </div>
   );
 }
@@ -637,7 +676,9 @@ function Drawer({ a, l, tagPill, onClose, onEdit, onTrash, onMarkDup }: {
           <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--tc-text)" }}>{a.name}</div>
           <div style={{ fontSize: "11px", color: "var(--tc-text-muted)", marginTop: "5px" }}>{typeLabel(t, l)} · {formatRelative(a.last_seen, l)}</div>
         </div>
-        <X size={18} style={{ cursor: "pointer", color: "var(--tc-text-muted)" }} onClick={onClose} />
+        <span className="tc-kbd" {...kbd(onClose)} aria-label={fr(l) ? "Fermer" : "Close"} style={{ display: "flex" }}>
+          <X size={18} style={{ cursor: "pointer", color: "var(--tc-text-muted)" }} onClick={onClose} />
+        </span>
       </div>
 
       <div style={{ marginTop: "20px" }}>
@@ -665,9 +706,9 @@ function Drawer({ a, l, tagPill, onClose, onEdit, onTrash, onMarkDup }: {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "20px" }}>
-        <div style={btn} onClick={onEdit}><Pencil size={13} /> {fr(l) ? "Modifier la classification" : "Edit classification"}</div>
-        <div style={btn} onClick={onMarkDup}><Copy size={13} /> {fr(l) ? "Marquer comme doublon" : "Mark as duplicate"}</div>
-        <div style={btn} onClick={onTrash}><Trash2 size={13} /> {fr(l) ? "Envoyer à la corbeille" : "Send to trash"}</div>
+        <div className="tc-kbd" {...kbd(onEdit)} style={btn} onClick={onEdit}><Pencil size={13} /> {fr(l) ? "Modifier la classification" : "Edit classification"}</div>
+        <div className="tc-kbd" {...kbd(onMarkDup)} style={btn} onClick={onMarkDup}><Copy size={13} /> {fr(l) ? "Marquer comme doublon" : "Mark as duplicate"}</div>
+        <div className="tc-kbd" {...kbd(onTrash)} style={btn} onClick={onTrash}><Trash2 size={13} /> {fr(l) ? "Envoyer à la corbeille" : "Send to trash"}</div>
         <a href={`/assets/${a.id}`} style={{ ...btn, textDecoration: "none" }}><ExternalLink size={13} /> {fr(l) ? "Ouvrir la fiche complète" : "Open full record"}</a>
       </div>
     </>

@@ -539,3 +539,29 @@ select:focus {
 .tc-driver-popover .driver-popover-arrow-side-bottom {
   border-color: var(--tc-bg) !important;
 }
+
+/* ── Inventory (lot 4) — accessibility + list density ── */
+.tc-listrow .tc-sub {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.12s ease, opacity 0.12s ease;
+}
+.tc-listrow:hover .tc-sub,
+.tc-listrow:focus-within .tc-sub,
+.tc-listrow:focus-visible .tc-sub {
+  max-height: 22px;
+  opacity: 1;
+}
+.tc-kbd:focus-visible {
+  outline: 2px solid var(--tc-blue);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
