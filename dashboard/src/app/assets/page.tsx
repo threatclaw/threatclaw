@@ -170,6 +170,11 @@ const inputStyle: React.CSSProperties = {
   borderRadius: "var(--tc-radius-sm)", color: "var(--tc-text)", outline: "none",
 };
 
+// Tags the platform manages automatically — excluded from the operator-facing
+// tag editor and badges (the duplicate flag has its own dedicated badge).
+const SYSTEM_TAGS = ["possible-duplicate", "public_ip", "keep-separate"];
+const isUserTag = (t: string) => !SYSTEM_TAGS.includes(t);
+
 const labelStyle: React.CSSProperties = {
   fontSize: "9px", fontWeight: 700, color: "var(--tc-text-muted)",
   textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "3px", display: "block",
@@ -903,8 +908,10 @@ function AssetsPageInner() {
   const [form, setForm] = useState({
     category: "", subcategory: "", name: "", role: "", criticality: "medium",
     ip: "", hostname: "", fqdn: "", os: "", url: "", mac: "",
-    owner: "", location: "", notes: "",
+    owner: "", location: "", notes: "", tags: [] as string[],
   });
+  // Draft text in the tag chip-input (not yet committed to a chip).
+  const [tagDraft, setTagDraft] = useState("");
 
   const [error, setError] = useState<string | null>(null);
 
@@ -976,13 +983,15 @@ function AssetsPageInner() {
 
   const openAdd = () => {
     setEditAsset(null);
-    setForm({ category: "", subcategory: "", name: "", role: "", criticality: "medium", ip: "", hostname: "", fqdn: "", os: "", url: "", mac: "", owner: "", location: "", notes: "" });
+    setTagDraft("");
+    setForm({ category: "", subcategory: "", name: "", role: "", criticality: "medium", ip: "", hostname: "", fqdn: "", os: "", url: "", mac: "", owner: "", location: "", notes: "", tags: [] });
     setModalStep(0);
     setShowModal(true);
   };
 
   const openEdit = (a: Asset) => {
     setEditAsset(a);
+    setTagDraft("");
     setForm({
       category: a.category, subcategory: a.subcategory || "", name: a.name,
       role: a.role || "", criticality: a.criticality,
@@ -990,6 +999,7 @@ function AssetsPageInner() {
       fqdn: a.fqdn || "", os: a.os || "", url: a.url || "",
       mac: a.mac_address || "", owner: a.owner || "",
       location: a.location || "", notes: a.notes || "",
+      tags: (a.tags || []).filter(isUserTag),
     });
     setModalStep(1);
     setShowModal(true);
@@ -1015,10 +1025,26 @@ function AssetsPageInner() {
     };
     if (form.ip) body.ip_addresses = form.ip.split(",").map(s => s.trim()).filter(Boolean);
     if (editAsset) body.id = editAsset.id;
-    await fetch("/api/tc/assets", {
+    const res = await fetch("/api/tc/assets", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
+    // Resolve the asset id — known on edit, returned by the upsert on create.
+    let assetId = editAsset?.id;
+    if (!assetId) {
+      try { assetId = (await res.json())?.id; } catch { /* ignore */ }
+    }
+    // Persist tags through the dedicated set endpoint (the upsert above only
+    // unions tags and can't remove). Fold in any half-typed chip first.
+    if (assetId) {
+      const finalTags = Array.from(new Set(
+        [...form.tags, tagDraft.trim()].filter(Boolean).filter(isUserTag)
+      ));
+      await fetch(`/api/tc/assets/${assetId}/tags`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: finalTags }),
+      });
+    }
     setShowModal(false);
     loadData();
   };
@@ -1092,7 +1118,8 @@ function AssetsPageInner() {
     const s = search.toLowerCase();
     return a.name.toLowerCase().includes(s) || a.ip_addresses.some(ip => ip.includes(s)) ||
       (a.hostname || "").toLowerCase().includes(s) || (a.role || "").toLowerCase().includes(s) ||
-      (a.os || "").toLowerCase().includes(s);
+      (a.os || "").toLowerCase().includes(s) ||
+      (a.tags || []).filter(isUserTag).some(t => t.toLowerCase().includes(s));
   });
 
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -1426,6 +1453,17 @@ function AssetsPageInner() {
                           }}>{lbl}{tail}</span>
                         );
                       })()}
+                      {/* User tags — click a tag to filter the inventory by it. */}
+                      {(a.tags || []).filter(isUserTag).map(t => (
+                        <span key={t}
+                          onClick={(e) => { e.stopPropagation(); setSearch(t); }}
+                          title={locale === "fr" ? `Filtrer par « ${t} »` : `Filter by "${t}"`}
+                          style={{ fontSize: "8px", fontWeight: 600, padding: "1px 5px", borderRadius: "3px",
+                            cursor: "pointer", background: "rgba(80,140,220,0.12)", color: "#6fa3e0",
+                            border: "1px solid rgba(80,140,220,0.3)" }}>
+                          #{t}
+                        </span>
+                      ))}
                     </div>
                     <div style={{ fontSize: "10px", color: "var(--tc-text-muted)", marginTop: "2px", display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
                       {a.ip_addresses.length > 0 && <span style={{ fontFamily: "monospace" }}>{a.ip_addresses.join(", ")}</span>}
@@ -1670,6 +1708,48 @@ function AssetsPageInner() {
                   <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                     placeholder={tr("assets_notesPlaceholder", locale)}
                     style={{ ...inputStyle, minHeight: "50px", resize: "vertical" }} />
+                </div>
+
+                {/* Tags — chip input. Enter/comma commits a chip; backspace on an
+                    empty field pops the last one. Used to filter the inventory. */}
+                <div>
+                  <label style={labelStyle}>Tags</label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", alignItems: "center",
+                    padding: "5px 6px", background: "var(--tc-input)", border: "1px solid var(--tc-border)",
+                    borderRadius: "var(--tc-radius-sm)" }}>
+                    {form.tags.map(t => (
+                      <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: "3px",
+                        fontSize: "10px", fontWeight: 600, padding: "2px 6px", borderRadius: "3px",
+                        background: "rgba(80,140,220,0.15)", color: "var(--tc-text)", border: "1px solid rgba(80,140,220,0.3)" }}>
+                        {t}
+                        <X size={10} style={{ cursor: "pointer" }} onClick={() =>
+                          setForm(f => ({ ...f, tags: f.tags.filter(x => x !== t) }))} />
+                      </span>
+                    ))}
+                    <input
+                      value={tagDraft}
+                      onChange={e => setTagDraft(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const t = tagDraft.trim().toLowerCase().replace(/\s+/g, "-");
+                          if (t && isUserTag(t) && !form.tags.includes(t)) {
+                            setForm(f => ({ ...f, tags: [...f.tags, t] }));
+                          }
+                          setTagDraft("");
+                        } else if (e.key === "Backspace" && !tagDraft && form.tags.length) {
+                          setForm(f => ({ ...f, tags: f.tags.slice(0, -1) }));
+                        }
+                      }}
+                      placeholder={form.tags.length ? "" : (locale === "fr" ? "Ajouter un tag (Entrée)…" : "Add a tag (Enter)…")}
+                      style={{ flex: 1, minWidth: "110px", border: "none", outline: "none", background: "transparent",
+                        color: "var(--tc-text)", fontSize: "11px", fontFamily: "inherit", padding: "2px" }}
+                    />
+                  </div>
+                  <div style={{ fontSize: "9px", color: "var(--tc-text-muted)", marginTop: "3px", fontStyle: "italic" }}>
+                    {locale === "fr" ? "Entrée ou virgule pour valider — sert à filtrer et rechercher l'inventaire."
+                                     : "Enter or comma to add — used to filter and search the inventory."}
+                  </div>
                 </div>
 
                 {/* Buttons */}

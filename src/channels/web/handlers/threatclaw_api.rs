@@ -7396,6 +7396,32 @@ pub async fn asset_criticality_set_handler(
     })))
 }
 
+/// PUT /api/tc/assets/{id}/tags — replace the operator-managed tags on an
+/// asset. Unlike the upsert path (which unions tags and can only add), this is
+/// a true set so the dashboard can both add and remove tags; system tags
+/// (possible-duplicate, public_ip, keep-separate) are preserved by the store.
+pub async fn asset_tags_set_handler(
+    State(state): State<Arc<GatewayState>>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let tags: Vec<String> = body["tags"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    match store.set_asset_tags(&id, &tags).await {
+        Ok(_) => Ok(Json(serde_json::json!({ "status": "ok", "id": id, "tags": tags }))),
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
 /// POST /api/tc/assets/merge — manually merge multiple asset rows into one.
 ///
 /// Body: { canonical_id: String, alias_ids: [String, ...], reason: String }

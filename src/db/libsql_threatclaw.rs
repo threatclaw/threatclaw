@@ -347,6 +347,9 @@ impl ThreatClawStore for LibSqlBackend {
     async fn remove_asset_tag(&self, _: &str, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn set_asset_tags(&self, _: &str, _: &[String]) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
     async fn set_asset_dedup_confidence(&self, _: &str, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }

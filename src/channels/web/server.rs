@@ -1266,6 +1266,10 @@ pub async fn start_server(
             "/api/tc/assets/{id}/criticality",
             axum::routing::put(super::handlers::threatclaw_api::asset_criticality_set_handler),
         )
+        .route(
+            "/api/tc/assets/{id}/tags",
+            axum::routing::put(super::handlers::threatclaw_api::asset_tags_set_handler),
+        )
         // V68 — manual merge + exclusion (single toggle, billing + monitoring)
         .route(
             "/api/tc/assets/merge",

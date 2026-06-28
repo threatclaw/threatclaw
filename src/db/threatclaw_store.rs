@@ -1344,6 +1344,14 @@ pub trait ThreatClawStore: Send + Sync {
     /// `possible-duplicate` flag once the operator has reviewed it.
     async fn remove_asset_tag(&self, id: &str, tag: &str) -> Result<(), DatabaseError>;
 
+    /// Replace the operator-managed tags on an asset with `tags`, while
+    /// preserving the platform-managed system tags (`possible-duplicate`,
+    /// `public_ip`, `keep-separate`) so a manual edit never clears them.
+    /// Unlike `upsert_asset` (which unions tags and can only add), this is a
+    /// true set — it is how the dashboard adds *and removes* tags. Marks
+    /// `tags` as user-modified.
+    async fn set_asset_tags(&self, id: &str, tags: &[String]) -> Result<(), DatabaseError>;
+
     /// Sprint 3 #2 — RSSI override of the seed/auto-detected criticality.
     /// Updates the canonical `assets` row; the caller is responsible for
     /// keeping the AGE graph node in sync (via threat_graph::upsert_asset).

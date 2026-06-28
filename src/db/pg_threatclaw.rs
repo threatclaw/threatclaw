@@ -2990,6 +2990,41 @@ impl ThreatClawStore for PgBackend {
         Ok(())
     }
 
+    async fn set_asset_tags(&self, id: &str, tags: &[String]) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Strip empties/dupes and drop any system tag the caller might have
+        // echoed back — those are re-added from the existing row below so the
+        // operator can never clobber them.
+        let mut seen = std::collections::HashSet::new();
+        let user_tags: Vec<&str> = tags
+            .iter()
+            .map(|s| s.trim())
+            .filter(|s| {
+                !s.is_empty()
+                    && !matches!(*s, "possible-duplicate" | "public_ip" | "keep-separate")
+                    && seen.insert(s.to_string())
+            })
+            .collect();
+        // Final set = user tags ∪ (system tags still present on the row).
+        conn.execute(
+            "UPDATE assets SET tags = (
+                 SELECT ARRAY(SELECT DISTINCT unnest(
+                     $2::text[] || ARRAY(
+                         SELECT t FROM unnest(assets.tags) t
+                         WHERE t = ANY(ARRAY['possible-duplicate','public_ip','keep-separate'])
+                     )
+                 ))
+             ),
+             user_modified = (SELECT ARRAY(SELECT DISTINCT unnest(assets.user_modified || ARRAY['tags']))),
+             updated_at = NOW()
+             WHERE id = $1",
+            &[&id, &user_tags],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
     async fn set_asset_dedup_confidence(
         &self,
         id: &str,
