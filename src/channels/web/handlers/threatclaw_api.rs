@@ -7590,6 +7590,7 @@ pub async fn asset_merge_handler(
             owner: pick_opt("owner", &canonical.owner, &alias_record.owner),
             location: pick_opt("location", &canonical.location, &alias_record.location),
             tags,
+            notes: None, // COALESCE keeps the canonical's existing note
         };
 
         if let Err(e) = store.upsert_asset(&merged_asset).await {
@@ -7844,6 +7845,10 @@ pub async fn assets_upsert_handler(
                     .collect()
             })
             .unwrap_or_default(),
+        // Operator notes. Absent key → None (sync/auto paths keep the existing
+        // note); explicit "" → clear. Not tracked in user_modified: notes must
+        // stay re-editable and no connector ever writes them.
+        notes: body.get("notes").and_then(|v| v.as_str()).map(String::from),
     };
 
     match store.upsert_asset(&asset).await {

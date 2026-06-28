@@ -607,6 +607,7 @@ async fn merge_asset(
             owner: None,
             location: None,
             tags: build_discovery_tags(discovered),
+            notes: None,
         })
         .await;
 
@@ -738,6 +739,7 @@ async fn create_new_asset(
             owner: None,
             location: None,
             tags,
+            notes: None,
         })
         .await;
 

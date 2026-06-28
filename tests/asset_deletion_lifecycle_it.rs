@@ -56,6 +56,7 @@ fn asset(id: &str, hostname: &str) -> NewAsset {
         owner: None,
         location: None,
         tags: vec![],
+        notes: None,
     }
 }
 

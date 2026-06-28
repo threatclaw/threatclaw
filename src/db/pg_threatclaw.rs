@@ -2597,8 +2597,8 @@ impl ThreatClawStore for PgBackend {
         conn.execute(
             r#"INSERT INTO assets (id, name, category, subcategory, role, criticality,
                 ip_addresses, mac_address, hostname, fqdn, url, os, mac_vendor,
-                services, source, sources, owner, location, tags, last_seen, inventory_status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20)
+                services, source, sources, owner, location, tags, last_seen, inventory_status, notes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NOW(), $20, $21)
             ON CONFLICT (id) DO UPDATE SET
                 -- Protect user-edited fields from auto-discovery overwrite
                 name = CASE WHEN 'name' = ANY(assets.user_modified) THEN assets.name
@@ -2643,11 +2643,16 @@ impl ThreatClawStore for PgBackend {
                          AND EXCLUDED.inventory_status != 'declared'
                         THEN 'observed_persistent'
                     ELSE EXCLUDED.inventory_status
-                END"#,
+                END,
+                -- Notes: operator-only field. Apply the incoming value when
+                -- present (re-editable), keep the existing note when the
+                -- caller sends NULL (every connector sync does). Never frozen
+                -- via user_modified — no connector ever writes notes.
+                notes = COALESCE(EXCLUDED.notes, assets.notes)"#,
             &[&a.id, &a.name, &a.category, &a.subcategory, &a.role, &a.criticality,
               &ips, &a.mac_address, &a.hostname, &a.fqdn, &a.url, &a.os, &a.mac_vendor,
               &a.services, &a.source, &source_arr, &a.owner, &a.location, &tags,
-              &new_inventory_status],
+              &new_inventory_status, &a.notes],
         ).await.map_err(query_err)?;
         Ok(a.id.clone())
     }

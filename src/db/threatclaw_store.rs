@@ -416,6 +416,10 @@ pub struct NewAsset {
     pub owner: Option<String>,
     pub location: Option<String>,
     pub tags: Vec<String>,
+    /// RSSI free-text notes. Purely operator-supplied — no connector ever
+    /// writes this, so the upsert applies it unconditionally (COALESCE) and
+    /// it stays re-editable; it is never frozen via `user_modified`.
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

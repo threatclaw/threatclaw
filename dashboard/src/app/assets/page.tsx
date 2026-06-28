@@ -1009,7 +1009,9 @@ function AssetsPageInner() {
       os: form.os || undefined, url: form.url || undefined,
       mac_address: form.mac || undefined,
       owner: form.owner || undefined, location: form.location || undefined,
-      notes: form.notes || undefined,
+      // On edit, always send the exact textarea value (an explicit "" clears
+      // the note). On create, only send when non-empty to keep the payload lean.
+      notes: editAsset ? form.notes : (form.notes || undefined),
     };
     if (form.ip) body.ip_addresses = form.ip.split(",").map(s => s.trim()).filter(Boolean);
     if (editAsset) body.id = editAsset.id;

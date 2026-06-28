@@ -335,6 +335,7 @@ pub async fn try_self_register(store: &dyn Database, skill_id: &str) -> Result<b
         owner: None,
         location: None,
         tags: template.tags.iter().map(|s| (*s).to_string()).collect(),
+        notes: None,
     };
 
     store
