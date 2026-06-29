@@ -16,7 +16,7 @@ positive:
   - description: Pre-auth probe burst from a scanner
     event:
       ident: sshd
-      message: 'Connection closed by authenticating user root 1.2.3.4 port 49222 [preauth]'
+      message: 'Disconnected from authenticating user root 1.2.3.4 port 49222 [preauth]'
 
 negative:
   - description: Routine successful root login from the operator's bastion
