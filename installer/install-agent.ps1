@@ -619,6 +619,8 @@ function Collect-Events($name, $channel, $eventFilter) {
 # so they can be added later without re-rolling the host).
 $sec = Collect-Events "windows_security_events" "Security" "eventid IN (4624,4625,4662,4720,4726,4728,4732,4756,4768,4769,4776,1102)"
 $ps  = Collect-Events "powershell_events" "Microsoft-Windows-PowerShell/Operational" "eventid IN (4103,4104)"
+# Phase 3: System channel for the service-install detection (win-auth-008, Event 7045).
+$sys = Collect-Events "windows_system_events" "System" "eventid IN (7045)"
 
 # Skip cert validation for self-signed TLS (also needed for the manifest call below)
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"
@@ -664,12 +666,13 @@ try {
 $truncFlags = @()
 if ($sec.truncated) { $truncFlags += '"windows_security_events_truncated":true' }
 if ($ps.truncated)  { $truncFlags += '"powershell_events_truncated":true' }
+if ($sys.truncated) { $truncFlags += '"windows_system_events_truncated":true' }
 $invStr = ""
 if ($invParts.Count -gt 0) { $invStr = "," + ($invParts -join ",") }
 $truncStr = ""
 if ($truncFlags.Count -gt 0) { $truncStr = "," + ($truncFlags -join ",") }
 $payload = @"
-{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","ts":$now,"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"dns_cache":$(JsonChunk $dns),"windows_security_events":$($sec.raw),"powershell_events":$($ps.raw)$invStr$truncStr$manifestExtras}
+{"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","ts":$now,"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"dns_cache":$(JsonChunk $dns),"windows_security_events":$($sec.raw),"powershell_events":$($ps.raw),"windows_system_events":$($sys.raw)$invStr$truncStr$manifestExtras}
 "@
 
 # Send to ThreatClaw — gzip only if the server advertised it (negotiated via the

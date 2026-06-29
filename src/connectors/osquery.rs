@@ -1354,6 +1354,12 @@ pub async fn process_osquery_webhook(
         result.alerts_created += alerts;
     }
 
+    if let Some(events) = body["windows_system_events"].as_array() {
+        let (ingested, alerts) = check_windows_system_events(store, sink, hostname, events).await;
+        result.logs_processed += ingested;
+        result.alerts_created += alerts;
+    }
+
     if result.alerts_created > 0 || result.software_items > 0 {
         tracing::info!(
             "OSQUERY: {} — {} software, {} connections, {} alerts",
@@ -1481,6 +1487,42 @@ fn is_interactive_logon_type(logon_type: &str) -> bool {
 /// identity edge (drives lateral-movement attack-path discovery).
 fn should_record_logon(user: &str, logon_type: &str) -> bool {
     is_interactive_logon_type(logon_type) && !is_noise_logon_account(user)
+}
+
+/// Windows System-channel events (Phase 3). The current consumer is the
+/// service-install detection (win-auth-008, Event 7045). Unlike the Security
+/// handler this does no aggregation/alerting — it just lands each event with
+/// `channel: "System"` so the Sigma engine can match `channel`+`eventid`.
+pub async fn check_windows_system_events(
+    _store: &dyn Database,
+    sink: &mut LogBatch,
+    hostname: &str,
+    events: &[serde_json::Value],
+) -> (usize, usize) {
+    let mut ingested = 0usize;
+    for event in events {
+        let eventid = event["eventid"]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| event["eventid"].as_i64().map(|i| i.to_string()))
+            .unwrap_or_default();
+        let datetime = event["datetime"].as_str().unwrap_or("");
+        let time = if datetime.is_empty() {
+            chrono::Utc::now().to_rfc3339()
+        } else {
+            datetime.to_string()
+        };
+        let data = parse_event_data(&event["data"]);
+        let log_payload = serde_json::json!({
+            "eventid": eventid,
+            "channel": "System",
+            "provider": event["provider_name"].as_str().unwrap_or(""),
+            "data": data,
+        });
+        sink.emit("osquery.windows_system", hostname, &log_payload, &time);
+        ingested += 1;
+    }
+    (ingested, 0)
 }
 
 pub async fn check_windows_security_events(
