@@ -2,9 +2,79 @@
 //! Webhook ingest endpoint.
 
 use crate::db::Database;
-use crate::db::threatclaw_store::{NewFinding, ThreatClawStore};
+use crate::db::threatclaw_store::{LogRow, NewFinding, ThreatClawStore};
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+/// Phase 2b — buffers the log rows produced while parsing ONE webhook payload,
+/// then writes them in a single batched insert (`insert_logs_batch`, UNNEST +
+/// `ON CONFLICT DO NOTHING`) instead of one `insert_log` per row. This lifts the
+/// ~1k/s per-row write ceiling on the high-volume push path (osquery / zeek /
+/// suricata / stormshield / strelka). In-batch dedup by content fingerprint
+/// trims redundant rows (and absorbs an agent re-pushing the same delta after a
+/// 503). The DB `ON CONFLICT` handles cross-request idempotency (worker re-run).
+pub struct LogBatch {
+    rows: Vec<LogRow>,
+    seen: std::collections::HashSet<u64>,
+}
+
+impl LogBatch {
+    pub fn new() -> Self {
+        Self {
+            rows: Vec::new(),
+            seen: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Buffer one log row. `time` is RFC3339 (parsed + future-clamped later by
+    /// the store, identical to `insert_log`). Duplicates within this batch
+    /// (same tag+hostname+time+data) are dropped.
+    pub fn emit(&mut self, tag: &str, hostname: &str, data: &serde_json::Value, time: &str) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        tag.hash(&mut h);
+        hostname.hash(&mut h);
+        time.hash(&mut h);
+        data.to_string().hash(&mut h);
+        if self.seen.insert(h.finish()) {
+            self.rows.push(LogRow {
+                tag: tag.to_string(),
+                hostname: hostname.to_string(),
+                data: data.clone(),
+                time: time.to_string(),
+            });
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// Write the buffer in one batched insert and clear it. A failure is logged
+    /// (telemetry loss is bounded to this payload) — the worker's at-least-once
+    /// re-run + ON CONFLICT recovers without double-writing. Returns rows inserted.
+    pub async fn flush(&mut self, store: &dyn Database) -> u64 {
+        if self.rows.is_empty() {
+            return 0;
+        }
+        let n = store.insert_logs_batch(&self.rows).await.unwrap_or_else(|e| {
+            tracing::warn!("LogBatch flush ({} rows) failed: {e}", self.rows.len());
+            0
+        });
+        self.rows.clear();
+        self.seen.clear();
+        n
+    }
+}
+
+impl Default for LogBatch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Rate limiter: source → (count, window_start)
 static RATE_LIMITS: std::sync::LazyLock<
@@ -255,18 +325,25 @@ pub async fn process_webhook_trusted(store: &dyn Database, source: &str, body: &
         return 0;
     }
 
+    // Phase 2b — buffer this payload's raw log rows, then write them in one
+    // batched insert after parsing. The high-volume push sources (zeek/suricata/
+    // stormshield/osquery/strelka) emit into the batch; the others only create
+    // findings/alerts (no raw logs) so they take `store` unchanged.
+    let mut batch = LogBatch::new();
     // Dispatch to source-specific parser
-    match source {
-        "zeek" => parse_zeek(store, &json).await,
-        "suricata" => parse_suricata(store, &json).await,
-        "stormshield" => parse_stormshield(store, &json).await,
+    let count = match source {
+        "zeek" => parse_zeek(store, &mut batch, &json).await,
+        "suricata" => parse_suricata(store, &mut batch, &json).await,
+        "stormshield" => parse_stormshield(&mut batch, &json).await,
         "osquery" => {
             let hostname = json["hostname"]
                 .as_str()
                 .or_else(|| json["host"].as_str())
                 .unwrap_or("unknown");
-            let result =
-                crate::connectors::osquery::process_osquery_webhook(store, hostname, &json).await;
+            let result = crate::connectors::osquery::process_osquery_webhook(
+                store, &mut batch, hostname, &json,
+            )
+            .await;
             result.alerts_created as u32
         }
         "cloudflare" => parse_cloudflare(store, &json).await,
@@ -277,12 +354,14 @@ pub async fn process_webhook_trusted(store: &dyn Database, source: &str, body: &
         "wordfence" => parse_wordfence(store, &json).await,
         "graylog" => parse_graylog(store, &json).await,
         "changedetection" => parse_changedetection(store, &json).await,
-        "strelka" => parse_strelka(store, &json).await,
+        "strelka" => parse_strelka(store, &mut batch, &json).await,
         _ => {
             // Unknown source — try generic parser
             parse_generic(store, source, &json).await
         }
-    }
+    };
+    batch.flush(store).await;
+    count
 }
 
 /// Generate a new webhook token for a source.
@@ -311,7 +390,7 @@ pub async fn generate_token(store: &dyn Database, source: &str) -> Result<String
 /// Accepts single entry or array of entries. Each entry is inserted as a log
 /// with the appropriate tag (zeek.conn, zeek.dns, zeek.ssl, etc.).
 /// The tag is auto-detected from the entry fields.
-async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
+async fn parse_zeek(store: &dyn Database, batch: &mut LogBatch, json: &serde_json::Value) -> u32 {
     let entries: Vec<&serde_json::Value> = if let Some(arr) = json.as_array() {
         arr.iter().collect()
     } else {
@@ -329,9 +408,8 @@ async fn parse_zeek(store: &dyn Database, json: &serde_json::Value) -> u32 {
             .or_else(|| entry["host"].as_str())
             .unwrap_or("");
 
-        if store.insert_log(&tag, hostname, entry, &now).await.is_ok() {
-            count += 1;
-        }
+        batch.emit(&tag, hostname, entry, &now);
+        count += 1;
 
         // Generate sigma alerts for notable events (same logic as zeek.rs connector)
         match tag.as_str() {
@@ -694,7 +772,7 @@ fn detect_zeek_log_type(entry: &serde_json::Value) -> String {
 /// Stormshield IDS normalizer fires — plus the parsed src/dst/logtype for
 /// fast querying. Detection + false-positive filtering are handled downstream
 /// by the sigma engine; this only ingests.
-async fn parse_stormshield(store: &dyn Database, json: &serde_json::Value) -> u32 {
+async fn parse_stormshield(batch: &mut LogBatch, json: &serde_json::Value) -> u32 {
     let entries: Vec<&serde_json::Value> = if let Some(arr) = json.as_array() {
         arr.iter().collect()
     } else {
@@ -746,9 +824,8 @@ async fn parse_stormshield(store: &dyn Database, json: &serde_json::Value) -> u3
         } else {
             dst.as_str()
         };
-        if store.insert_log(&tag, hostname, &data, &now).await.is_ok() {
-            count += 1;
-        }
+        batch.emit(&tag, hostname, &data, &now);
+        count += 1;
     }
     count
 }
@@ -756,7 +833,11 @@ async fn parse_stormshield(store: &dyn Database, json: &serde_json::Value) -> u3
 /// Parse Suricata EVE JSON logs pushed from a remote Fluent-Bit agent.
 /// Accepts single entry or array. Each entry is inserted as a log and
 /// alerts are auto-created for IDS detections.
-async fn parse_suricata(store: &dyn Database, json: &serde_json::Value) -> u32 {
+async fn parse_suricata(
+    store: &dyn Database,
+    batch: &mut LogBatch,
+    json: &serde_json::Value,
+) -> u32 {
     let entries: Vec<&serde_json::Value> = if let Some(arr) = json.as_array() {
         arr.iter().collect()
     } else {
@@ -779,9 +860,8 @@ async fn parse_suricata(store: &dyn Database, json: &serde_json::Value) -> u32 {
             }
         );
 
-        if store.insert_log(&tag, dest_ip, entry, &now).await.is_ok() {
-            count += 1;
-        }
+        batch.emit(&tag, dest_ip, entry, &now);
+        count += 1;
 
         // Create sigma alerts for Suricata IDS alerts
         if event_type == "alert" {
@@ -1144,7 +1224,11 @@ async fn parse_generic(store: &dyn Database, source: &str, json: &serde_json::Va
 ///
 /// Input: JSON array of scan results from POST /api/tc/webhook/ingest/strelka
 /// Each result contains: file metadata + scanner results + IOC matches
-async fn parse_strelka(store: &dyn Database, json: &serde_json::Value) -> u32 {
+async fn parse_strelka(
+    store: &dyn Database,
+    batch: &mut LogBatch,
+    json: &serde_json::Value,
+) -> u32 {
     let mut findings = 0u32;
 
     // Strelka can send single result or array of results
@@ -1282,11 +1366,7 @@ async fn parse_strelka(store: &dyn Database, json: &serde_json::Value) -> u32 {
 
         // Also store as log for IE correlation
         let now = chrono::Utc::now().to_rfc3339();
-        crate::connectors::log_db_write(
-            "webhook_ingest:insert_log",
-            store.insert_log("strelka.scan", "", result, &now),
-        )
-        .await;
+        batch.emit("strelka.scan", "", result, &now);
     }
 
     if findings > 0 {
@@ -1303,6 +1383,23 @@ async fn parse_strelka(store: &dyn Database, json: &serde_json::Value) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_batch_dedups_within_batch() {
+        let now = "2026-06-29T10:00:00Z";
+        let mut b = LogBatch::new();
+        let a = serde_json::json!({"k": 1});
+        // Same (tag, host, time, data) → buffered once.
+        b.emit("t", "h1", &a, now);
+        b.emit("t", "h1", &a, now);
+        assert_eq!(b.len(), 1, "identical rows are deduped within the batch");
+        // Any field differing → a distinct row.
+        b.emit("t", "h2", &a, now); // different host
+        b.emit("t", "h1", &serde_json::json!({"k": 2}), now); // different data
+        b.emit("t2", "h1", &a, now); // different tag
+        assert_eq!(b.len(), 4, "rows differing in any key field are kept");
+        assert!(!b.is_empty());
+    }
 
     #[test]
     fn test_rate_limit() {

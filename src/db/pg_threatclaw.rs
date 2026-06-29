@@ -18,6 +18,29 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// Parse an RFC3339 event time and future-clamp it: some syslog producers
+/// (rsyslog TZ-naïve template via fluent-bit) emit a local time tagged UTC, so a
+/// row lands hours ahead and poisons the forward-only Sigma cursor. We accept
+/// the record but pin its time to `now()` when it is >60s ahead. Shared by
+/// `insert_log` (single) and `insert_logs_batch` so both behave identically.
+fn parse_and_clamp_time(
+    time: &str,
+    tag: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, DatabaseError> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(time)
+        .map(|d| d.with_timezone(&chrono::Utc))
+        .map_err(|e| DatabaseError::Query(format!("invalid timestamp: {}", e)))?;
+    let now = chrono::Utc::now();
+    if parsed > now + chrono::Duration::seconds(60) {
+        tracing::warn!(
+            "INSERT_LOG: tag={tag} time={time} is ahead of wall-clock by >60s, clamping to now (likely upstream TZ bug)"
+        );
+        Ok(now)
+    } else {
+        Ok(parsed)
+    }
+}
+
 /// V98 — pick a stable display colour for a freshly created tag. Deterministic
 /// on the label so the same tag always lands on the same colour, drawn from the
 /// ThreatClaw accent palette (blue/green/amber/violet/red/teal/pink/lime).
@@ -1542,20 +1565,7 @@ impl ThreatClawStore for PgBackend {
         // ahead — the upstream TZ bug is logged separately. Clock drift
         // of a few seconds is tolerated; only meaningful skew (> 60 s)
         // triggers the clamp.
-        let parsed_time = chrono::DateTime::parse_from_rfc3339(time)
-            .map(|d| d.with_timezone(&chrono::Utc))
-            .map_err(|e| DatabaseError::Query(format!("invalid timestamp: {}", e)))?;
-        let parsed_time = {
-            let now = chrono::Utc::now();
-            if parsed_time > now + chrono::Duration::seconds(60) {
-                tracing::warn!(
-                    "INSERT_LOG: tag={tag} time={time} is ahead of wall-clock by >60s, clamping to now (likely upstream TZ bug)"
-                );
-                now
-            } else {
-                parsed_time
-            }
-        };
+        let parsed_time = parse_and_clamp_time(time, tag)?;
         let row = conn
             .query_one(
                 "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3, $4) RETURNING id",
@@ -1564,6 +1574,59 @@ impl ThreatClawStore for PgBackend {
             .await
             .map_err(query_err)?;
         Ok(row.get(0))
+    }
+
+    /// Phase 2b — batched log insert. One `unnest` statement writes the whole
+    /// buffer with `ON CONFLICT DO NOTHING` (dedup target = `idx_logs_dedup`,
+    /// V100), so a worker re-running an at-least-once payload is idempotent.
+    /// Per-row time is parsed + future-clamped like `insert_log`; an unparseable
+    /// row is skipped (warned) rather than failing the whole batch. Chunked to
+    /// bound the statement/parameter size. Returns rows actually inserted.
+    async fn insert_logs_batch(
+        &self,
+        rows: &[crate::db::threatclaw_store::LogRow],
+    ) -> Result<u64, DatabaseError> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        const CHUNK: usize = 10_000;
+        let mut inserted: u64 = 0;
+        for chunk in rows.chunks(CHUNK) {
+            // Build column-major arrays for unnest. Drop rows whose timestamp
+            // can't be parsed (mirrors insert_log's contract, but batch-safe).
+            let mut tags: Vec<&str> = Vec::with_capacity(chunk.len());
+            let mut hosts: Vec<&str> = Vec::with_capacity(chunk.len());
+            let mut datas: Vec<&serde_json::Value> = Vec::with_capacity(chunk.len());
+            let mut times: Vec<chrono::DateTime<chrono::Utc>> = Vec::with_capacity(chunk.len());
+            for r in chunk {
+                match parse_and_clamp_time(&r.time, &r.tag) {
+                    Ok(t) => {
+                        tags.push(r.tag.as_str());
+                        hosts.push(r.hostname.as_str());
+                        datas.push(&r.data);
+                        times.push(t);
+                    }
+                    Err(e) => {
+                        tracing::warn!("insert_logs_batch: skipping row tag={} bad time: {e}", r.tag);
+                    }
+                }
+            }
+            if tags.is_empty() {
+                continue;
+            }
+            let n = conn
+                .execute(
+                    "INSERT INTO logs (tag, hostname, data, time) \
+                     SELECT * FROM unnest($1::text[], $2::text[], $3::jsonb[], $4::timestamptz[]) \
+                     ON CONFLICT (time, hostname, tag, md5(data::text)) DO NOTHING",
+                    &[&tags, &hosts, &datas, &times],
+                )
+                .await
+                .map_err(query_err)?;
+            inserted += n;
+        }
+        Ok(inserted)
     }
 
     // ── Phase 2a — durable async ingestion queue ──

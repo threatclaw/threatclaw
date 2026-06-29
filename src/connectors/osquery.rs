@@ -7,6 +7,7 @@
 // 3. Creates sigma alerts for suspicious process/file events
 // 4. Provides features for ML behavioral analysis
 
+use crate::connectors::webhook_ingest::LogBatch;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
@@ -1124,6 +1125,7 @@ pub fn truncated_sources(json: &serde_json::Value) -> Vec<String> {
 
 pub async fn process_osquery_webhook(
     store: &dyn Database,
+    sink: &mut LogBatch,
     hostname: &str,
     body: &serde_json::Value,
 ) -> OsquerySyncResult {
@@ -1249,11 +1251,7 @@ pub async fn process_osquery_webhook(
         // This enables PowerShell obfuscation rules and other process-based detections
         let now = chrono::Utc::now().to_rfc3339();
         for event in proc_events {
-            crate::connectors::log_db_write(
-                "osquery:insert_log",
-                store.insert_log("osquery.process", hostname, event, &now),
-            )
-            .await;
+            sink.emit("osquery.process", hostname, event, &now);
             result.logs_processed += 1;
         }
     }
@@ -1339,19 +1337,19 @@ pub async fn process_osquery_webhook(
     result.logs_processed = 1;
 
     if let Some(events) = body["windows_security_events"].as_array() {
-        let (ingested, alerts) = check_windows_security_events(store, hostname, events).await;
+        let (ingested, alerts) = check_windows_security_events(store, sink, hostname, events).await;
         result.logs_processed += ingested;
         result.alerts_created += alerts;
     }
 
     if let Some(events) = body["powershell_events"].as_array() {
-        let (ingested, alerts) = check_powershell_events(store, hostname, events).await;
+        let (ingested, alerts) = check_powershell_events(store, sink, hostname, events).await;
         result.logs_processed += ingested;
         result.alerts_created += alerts;
     }
 
     if let Some(events) = body["sysmon_events"].as_array() {
-        let (ingested, alerts) = check_sysmon_events(store, hostname, events).await;
+        let (ingested, alerts) = check_sysmon_events(store, sink, hostname, events).await;
         result.logs_processed += ingested;
         result.alerts_created += alerts;
     }
@@ -1487,6 +1485,7 @@ fn should_record_logon(user: &str, logon_type: &str) -> bool {
 
 pub async fn check_windows_security_events(
     store: &dyn Database,
+    sink: &mut LogBatch,
     hostname: &str,
     events: &[serde_json::Value],
 ) -> (usize, usize) {
@@ -1539,14 +1538,8 @@ pub async fn check_windows_security_events(
             "provider": event["provider_name"].as_str().unwrap_or(""),
             "data": data,
         });
-        if let Some(_id) = crate::connectors::log_db_write(
-            "osquery:insert_log",
-            store.insert_log("osquery.windows_security", hostname, &log_payload, &time),
-        )
-        .await
-        {
-            ingested += 1;
-        }
+        sink.emit("osquery.windows_security", hostname, &log_payload, &time);
+        ingested += 1;
 
         match eventid.as_str() {
             // Failed logon — accumulate for brute force, no per-event alert
@@ -1773,6 +1766,7 @@ fn is_suspicious_powershell(script: &str) -> Vec<&'static str> {
 
 pub async fn check_powershell_events(
     store: &dyn Database,
+    sink: &mut LogBatch,
     hostname: &str,
     events: &[serde_json::Value],
 ) -> (usize, usize) {
@@ -1809,14 +1803,8 @@ pub async fn check_powershell_events(
             "channel": "Microsoft-Windows-PowerShell/Operational",
             "data": data,
         });
-        if let Some(_id) = crate::connectors::log_db_write(
-            "osquery:insert_log",
-            store.insert_log("osquery.powershell", hostname, &log_payload, &time),
-        )
-        .await
-        {
-            ingested += 1;
-        }
+        sink.emit("osquery.powershell", hostname, &log_payload, &time);
+        ingested += 1;
 
         if eventid == "4104" {
             let part = extract_event_field(&data, &["ScriptBlockText", "Path"])
@@ -1931,6 +1919,7 @@ pub async fn check_powershell_events(
 // few patterns that are unambiguous IOCs from the event itself.
 pub async fn check_sysmon_events(
     store: &dyn Database,
+    sink: &mut LogBatch,
     hostname: &str,
     events: &[serde_json::Value],
 ) -> (usize, usize) {
@@ -1956,14 +1945,8 @@ pub async fn check_sysmon_events(
             "channel": "Microsoft-Windows-Sysmon/Operational",
             "data": data,
         });
-        if let Some(_id) = crate::connectors::log_db_write(
-            "osquery:insert_log",
-            store.insert_log("osquery.sysmon", hostname, &log_payload, &time),
-        )
-        .await
-        {
-            ingested += 1;
-        }
+        sink.emit("osquery.sysmon", hostname, &log_payload, &time);
+        ingested += 1;
 
         match eventid.as_str() {
             // Process Create — alert on offensive tool signatures in cmdline

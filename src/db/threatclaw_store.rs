@@ -294,6 +294,18 @@ pub struct IngestRow {
     pub body: Vec<u8>,
 }
 
+/// One log record buffered for a batched insert (Phase 2b). Mirrors the
+/// `insert_log` arguments: `time` is an RFC3339 string parsed + future-clamped
+/// inside `insert_logs_batch` (the time semantics stay in the store, identical
+/// to the single-row path).
+#[derive(Debug, Clone)]
+pub struct LogRow {
+    pub tag: String,
+    pub hostname: String,
+    pub data: serde_json::Value,
+    pub time: String,
+}
+
 /// Hunt-panel search filters. All fields are optional; the caller composes
 /// what they have. Time bounds default to the last 24 hours when omitted so
 /// an empty filter set does not accidentally scan the whole hypertable.
@@ -1117,6 +1129,18 @@ pub trait ThreatClawStore: Send + Sync {
         data: &serde_json::Value,
         time: &str,
     ) -> Result<i64, DatabaseError>;
+
+    /// Phase 2b — batch insert of log records with `ON CONFLICT DO NOTHING`
+    /// dedup (idempotent: a retried payload is absorbed). Returns the number of
+    /// rows actually inserted (post-dedup). Per-row time is parsed +
+    /// future-clamped exactly like `insert_log`. Postgres-only (logs hypertable);
+    /// the default errors so a non-Postgres backend fails loudly instead of
+    /// silently dropping telemetry.
+    async fn insert_logs_batch(&self, _rows: &[LogRow]) -> Result<u64, DatabaseError> {
+        Err(DatabaseError::Query(
+            "insert_logs_batch unsupported on this backend".into(),
+        ))
+    }
 
     // ── Phase 2a — durable async ingestion queue ──
     // Default impls keep non-Postgres backends compiling (Postgres overrides all
