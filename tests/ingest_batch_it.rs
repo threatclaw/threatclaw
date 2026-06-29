@@ -1,22 +1,32 @@
-//! Integration test for Phase 2b batched log writes (`insert_logs_batch`).
+//! Integration test for Phase 2b batched log writes (`insert_logs_batch`) and
+//! the online partial dedup index (`logs_dedup`).
 //!
-//! Proves, on a real Postgres with the V100 dedup index applied:
+//! Proves, on a real Postgres:
+//!   - the online builder creates the partial dedup index `idx_logs_dedup`,
 //!   - a batch round-trips (all distinct rows land — return value = row count),
 //!   - re-inserting the SAME batch is idempotent (ON CONFLICT DO NOTHING →
 //!     0 new rows), which is what makes the at-least-once ingest worker safe,
 //!   - the future-clamp still applies (a >60s-ahead timestamp inserts, pinned to
-//!     now, rather than being rejected).
+//!     now, rather than being rejected),
+//!   - REGRESSION: two identical `collector = 'fluent-bit'` (syslog) rows BOTH
+//!     survive — the partial index `WHERE collector IS NULL` must never dedup
+//!     genuine repeated syslog events,
+//!   - before the index exists the writer falls back to a plain insert (42P10),
+//!     so ingestion is never blocked on the one-time build.
 //!
-//! Requires a local Postgres with migrations through V100 applied:
+//! Requires a local Postgres (TimescaleDB optional — the builder degrades to a
+//! plain table). No migration needs the index; the test builds it itself:
 //!   DATABASE_URL=postgres://threatclaw:...@127.0.0.1:5432/threatclaw \
 //!   cargo test --features postgres --test ingest_batch_it -- --ignored
 //!
 //! Rows are made globally unique per run (nonce in `data`), so runs neither
-//! collide nor need cleanup on a shared dev DB.
+//! collide nor need cleanup on a shared dev DB. Single sequential test on
+//! purpose: it drops/rebuilds the shared index, which must not race a sibling.
 
 #![cfg(feature = "postgres")]
 
 use threatclaw::config::DatabaseConfig;
+use threatclaw::db::logs_dedup::{self, INDEX_NAME};
 use threatclaw::db::postgres::PgBackend;
 use threatclaw::db::threatclaw_store::{LogRow, ThreatClawStore};
 
@@ -45,41 +55,100 @@ fn row(nonce: i64, host: &str, n: i64, time: &str) -> LogRow {
     }
 }
 
+async fn index_exists(be: &PgBackend) -> bool {
+    let conn = be.pool().get().await.expect("conn");
+    let n: i64 = conn
+        .query_one(
+            "SELECT count(*) FROM pg_indexes WHERE indexname = $1",
+            &[&INDEX_NAME],
+        )
+        .await
+        .expect("query")
+        .get(0);
+    n > 0
+}
+
 #[tokio::test]
 #[ignore]
-async fn batch_inserts_and_dedups() {
+async fn batch_dedups_clamps_and_spares_syslog() {
     let be = backend().await;
     let nonce = chrono::Utc::now().timestamp_micros();
     let now = chrono::Utc::now().to_rfc3339();
 
+    // ── Online builder creates the partial dedup index ──
+    logs_dedup::ensure_logs_dedup_index(be.pool()).await;
+    assert!(index_exists(&be).await, "online builder created idx_logs_dedup");
+
+    // ── Idempotency (the at-least-once worker's safety net) ──
     let rows = vec![
         row(nonce, "it-host-a", 1, &now),
         row(nonce, "it-host-a", 2, &now),
         row(nonce, "it-host-b", 3, &now),
     ];
-
-    // First write: all three are new.
     let n1 = be.insert_logs_batch(&rows).await.expect("batch 1");
     assert_eq!(n1, 3, "all distinct rows inserted on first write");
 
-    // Re-write the SAME batch: ON CONFLICT DO NOTHING → nothing new. This is
-    // exactly the ingest worker's at-least-once re-run being absorbed.
     let n2 = be.insert_logs_batch(&rows).await.expect("batch 2 (retry)");
     assert_eq!(n2, 0, "re-inserting an identical batch is idempotent");
 
-    // A genuinely new row still lands.
     let n3 = be
         .insert_logs_batch(&[row(nonce, "it-host-a", 99, &now)])
         .await
         .expect("batch 3");
     assert_eq!(n3, 1, "a new distinct row still inserts");
 
-    // Future-clamp: a timestamp 2h ahead is pinned to ~now (so the Sigma cursor
-    // is not poisoned). It inserts (distinct content) and does not error.
+    // ── Future-clamp: a 2h-ahead timestamp is pinned to ~now, not rejected ──
     let ahead = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
     let n4 = be
         .insert_logs_batch(&[row(nonce, "it-host-clamp", 1, &ahead)])
         .await
         .expect("batch 4 (future time)");
     assert_eq!(n4, 1, "future-timestamped row inserts (clamped, not rejected)");
+
+    // ── REGRESSION: identical syslog (collector='fluent-bit') rows are NOT
+    // deduped. The partial index covers only collector IS NULL, so two real
+    // repeated syslog lines (e.g. two auth failures in the same second) both
+    // survive. Insert the same content twice via the syslog shape and count. ──
+    {
+        let conn = be.pool().get().await.expect("conn");
+        let syslog_data = serde_json::json!({ "syslogrun": nonce, "msg": "Failed password" });
+        for _ in 0..2 {
+            conn.execute(
+                "INSERT INTO logs (tag, hostname, data, time, collector) \
+                 VALUES ('sshd', 'it-syslog', $1, now(), 'fluent-bit')",
+                &[&syslog_data],
+            )
+            .await
+            .expect("syslog insert must not be blocked by the partial index");
+        }
+        let kept: i64 = conn
+            .query_one(
+                "SELECT count(*) FROM logs \
+                 WHERE collector = 'fluent-bit' AND (data->>'syslogrun')::bigint = $1",
+                &[&nonce],
+            )
+            .await
+            .expect("count")
+            .get(0);
+        assert_eq!(kept, 2, "identical syslog events are preserved, never deduped");
+    }
+
+    // ── Fallback: before the index exists the writer must still ingest (42P10
+    // → plain insert). Drop the index, insert, expect success, then rebuild so
+    // the dev DB is left in a clean (indexed) state for the next run. ──
+    {
+        let conn = be.pool().get().await.expect("conn");
+        conn.execute(&format!("DROP INDEX IF EXISTS {INDEX_NAME}"), &[])
+            .await
+            .expect("drop index");
+    }
+    assert!(!index_exists(&be).await, "index dropped for the fallback case");
+    let n5 = be
+        .insert_logs_batch(&[row(nonce, "it-host-fallback", 1, &now)])
+        .await
+        .expect("batch inserts via plain-insert fallback when the index is absent");
+    assert_eq!(n5, 1, "writer falls back to a plain insert, ingestion not blocked");
+
+    logs_dedup::ensure_logs_dedup_index(be.pool()).await;
+    assert!(index_exists(&be).await, "builder rebuilds the index after the fallback window");
 }

@@ -18,6 +18,17 @@ fn query_err(e: impl std::fmt::Display) -> DatabaseError {
     DatabaseError::Query(e.to_string())
 }
 
+/// True when an `ON CONFLICT` insert failed only because its arbiter index does
+/// not exist yet (SQLSTATE 42P10, "no unique or exclusion constraint matching
+/// the ON CONFLICT specification"). The `logs` dedup index is built online after
+/// startup (see `logs_dedup`), so during that one-time window the dedup writers
+/// catch this and fall back to a plain insert rather than failing ingestion.
+fn is_missing_conflict_target(e: &tokio_postgres::Error) -> bool {
+    e.as_db_error()
+        .map(|d| d.code() == &tokio_postgres::error::SqlState::INVALID_COLUMN_REFERENCE)
+        .unwrap_or(false)
+}
+
 /// Parse an RFC3339 event time and future-clamp it: some syslog producers
 /// (rsyslog TZ-naïve template via fluent-bit) emit a local time tagged UTC, so a
 /// row lands hours ahead and poisons the forward-only Sigma cursor. We accept
@@ -1566,22 +1577,47 @@ impl ThreatClawStore for PgBackend {
         // of a few seconds is tolerated; only meaningful skew (> 60 s)
         // triggers the clamp.
         let parsed_time = parse_and_clamp_time(time, tag)?;
-        let row = conn
-            .query_one(
-                "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3, $4) RETURNING id",
-                &[&tag, &hostname, data, &parsed_time],
+        // ON CONFLICT against the partial dedup index (collector IS NULL — this
+        // path never sets collector, so the new row matches): a worker re-running
+        // an at-least-once payload is idempotent. `query_opt` because DO NOTHING
+        // returns no row when the insert is dropped as a duplicate; the returned
+        // id is unused by every caller, so 0 is a fine sentinel for that case.
+        let params: [&(dyn tokio_postgres::types::ToSql + Sync); 4] =
+            [&tag, &hostname, data, &parsed_time];
+        match conn
+            .query_opt(
+                "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3, $4) \
+                 ON CONFLICT (time, hostname, tag, md5(data::text)) WHERE collector IS NULL \
+                 DO NOTHING RETURNING id",
+                &params,
             )
             .await
-            .map_err(query_err)?;
-        Ok(row.get(0))
+        {
+            Ok(Some(row)) => Ok(row.get(0)),
+            Ok(None) => Ok(0), // dropped as a duplicate
+            // Dedup index not built yet (online builder still running): fall back
+            // to a plain insert so ingestion is never blocked on the one-time build.
+            Err(e) if is_missing_conflict_target(&e) => {
+                let row = conn
+                    .query_one(
+                        "INSERT INTO logs (tag, hostname, data, time) VALUES ($1, $2, $3, $4) RETURNING id",
+                        &params,
+                    )
+                    .await
+                    .map_err(query_err)?;
+                Ok(row.get(0))
+            }
+            Err(e) => Err(query_err(e)),
+        }
     }
 
     /// Phase 2b — batched log insert. One `unnest` statement writes the whole
-    /// buffer with `ON CONFLICT DO NOTHING` (dedup target = `idx_logs_dedup`,
-    /// V100), so a worker re-running an at-least-once payload is idempotent.
-    /// Per-row time is parsed + future-clamped like `insert_log`; an unparseable
-    /// row is skipped (warned) rather than failing the whole batch. Chunked to
-    /// bound the statement/parameter size. Returns rows actually inserted.
+    /// buffer with `ON CONFLICT DO NOTHING` against the partial dedup index
+    /// `idx_logs_dedup` (built online by `logs_dedup`), so a worker re-running an
+    /// at-least-once payload is idempotent. Per-row time is parsed + future-clamped
+    /// like `insert_log`; an unparseable row is skipped (warned) rather than
+    /// failing the whole batch. Chunked to bound the statement/parameter size.
+    /// Returns rows actually inserted.
     async fn insert_logs_batch(
         &self,
         rows: &[crate::db::threatclaw_store::LogRow],
@@ -1615,15 +1651,34 @@ impl ThreatClawStore for PgBackend {
             if tags.is_empty() {
                 continue;
             }
-            let n = conn
+            let params: [&(dyn tokio_postgres::types::ToSql + Sync); 4] =
+                [&tags, &hosts, &datas, &times];
+            // ON CONFLICT against the partial dedup index (collector IS NULL —
+            // this path never sets collector). Dropping a re-run duplicate keeps
+            // the at-least-once worker idempotent. Until the index is built online
+            // (see `logs_dedup`), the arbiter is missing (42P10): fall back to a
+            // plain insert so a fresh/just-migrated box ingests without waiting.
+            let n = match conn
                 .execute(
                     "INSERT INTO logs (tag, hostname, data, time) \
                      SELECT * FROM unnest($1::text[], $2::text[], $3::jsonb[], $4::timestamptz[]) \
-                     ON CONFLICT (time, hostname, tag, md5(data::text)) DO NOTHING",
-                    &[&tags, &hosts, &datas, &times],
+                     ON CONFLICT (time, hostname, tag, md5(data::text)) WHERE collector IS NULL \
+                     DO NOTHING",
+                    &params,
                 )
                 .await
-                .map_err(query_err)?;
+            {
+                Ok(n) => n,
+                Err(e) if is_missing_conflict_target(&e) => conn
+                    .execute(
+                        "INSERT INTO logs (tag, hostname, data, time) \
+                         SELECT * FROM unnest($1::text[], $2::text[], $3::jsonb[], $4::timestamptz[])",
+                        &params,
+                    )
+                    .await
+                    .map_err(query_err)?,
+                Err(e) => return Err(query_err(e)),
+            };
             inserted += n;
         }
         Ok(inserted)

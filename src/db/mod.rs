@@ -27,6 +27,9 @@ pub mod threatclaw_store;
 pub mod pg_threatclaw;
 
 #[cfg(feature = "postgres")]
+pub mod logs_dedup;
+
+#[cfg(feature = "postgres")]
 pub mod sentinel_store;
 
 #[cfg(feature = "libsql")]
@@ -131,6 +134,12 @@ pub async fn connect_with_handles(
             tracing::info!("PostgreSQL database connected and migrations applied");
 
             handles.pg_pool = Some(pg.pool());
+
+            // Build the logs content-dedup index online, off the startup path:
+            // on a populated install the dedup + partial index takes minutes and
+            // must not freeze boot. The batched writers fall back to a plain
+            // insert until it appears. See `logs_dedup`.
+            tokio::spawn(crate::db::logs_dedup::ensure_logs_dedup_index(pg.pool()));
 
             // See ADR-045.
             let pool_for_graph = pg.pool();
