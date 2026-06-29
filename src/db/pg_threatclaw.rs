@@ -2322,13 +2322,19 @@ impl ThreatClawStore for PgBackend {
         // `disposition` ($13) is applied ON INSERT only — it's deliberately
         // absent from the DO UPDATE SET so an operator's promotion survives a
         // re-sync. None → DB default 'detect'.
+        // `enabled` ON INSERT derives from the Sigma `status`: rules shipped
+        // `unsupported`/`deprecated` load DISABLED — a way to retire a broken rule
+        // via the bundle without deleting it. Like disposition, it is absent from
+        // the DO UPDATE SET so an operator's dashboard toggle is preserved.
         conn.execute(
             "INSERT INTO sigma_rules \
                 (id, title, description, level, status, \
                  logsource_category, logsource_product, logsource_service, \
                  tags, author, rule_yaml, detection_json, enabled, disposition) \
              VALUES ($1, $2, $3, $4, COALESCE($5, 'experimental'), \
-                     $6, $7, $8, $9, $10, $11, $12, true, COALESCE($13, 'detect')) \
+                     $6, $7, $8, $9, $10, $11, $12, \
+                     (COALESCE($5, 'experimental') NOT IN ('unsupported','deprecated')), \
+                     COALESCE($13, 'detect')) \
              ON CONFLICT (id) DO UPDATE SET \
                 title = EXCLUDED.title, \
                 description = EXCLUDED.description, \
