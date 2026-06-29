@@ -3578,7 +3578,10 @@ pub fn spawn_intelligence_ticker(
             // the running rules untouched. Own task so it never blocks the cycle.
             if (now - last_rule_update).num_hours() >= 6 {
                 last_rule_update = now;
-                if let Some(cfg) = crate::agent::rule_updater::RuleUpdateConfig::from_env() {
+                if let Some(cfg) =
+                    crate::agent::rule_updater::RuleUpdateConfig::from_env_or_store(store.as_ref())
+                        .await
+                {
                     let store_rules = store.clone();
                     tokio::spawn(async move {
                         match crate::agent::rule_updater::run_update_cycle(

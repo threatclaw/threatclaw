@@ -24,6 +24,11 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const VERSION_NS: &str = "_sigma_rules";
 const VERSION_KEY: &str = "managed_version";
 
+// Support key persisted via the dashboard (premium-key activation) rather than
+// the TC_SUPPORT_KEY env var. The env var wins when both are present.
+const SUPPORT_KEY_NS: &str = "_system";
+const SUPPORT_KEY_SETTING: &str = "tc_support_key";
+
 /// Resolved configuration for one update run.
 pub struct RuleUpdateConfig {
     pub worker_base: String,
@@ -35,13 +40,23 @@ pub struct RuleUpdateConfig {
 }
 
 impl RuleUpdateConfig {
-    /// Build from the environment. Returns `None` when no support key is
-    /// configured (free agents / no plan) so the updater is a clean no-op.
-    pub fn from_env() -> Option<Self> {
-        let support_key = std::env::var("TC_SUPPORT_KEY")
-            .ok()
-            .map(|k| k.trim().to_string())
-            .filter(|k| !k.is_empty())?;
+    /// Resolve the effective support key. The env var wins; the dashboard-stored
+    /// setting is the fallback. Empty / whitespace values count as absent.
+    fn resolve_support_key(from_env: Option<String>, from_store: Option<String>) -> Option<String> {
+        let clean = |k: String| -> Option<String> {
+            let t = k.trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        };
+        from_env.and_then(clean).or_else(|| from_store.and_then(clean))
+    }
+
+    /// Build a config around an already-resolved support key. Non-key fields
+    /// (worker base, rules dir, install id) come from the environment / disk.
+    fn with_key(support_key: String) -> Self {
         let worker_base = std::env::var("TC_LICENSE_API_URL")
             .unwrap_or_else(|_| DEFAULT_WORKER_BASE.to_string());
         let rules_dir = PathBuf::from(
@@ -49,12 +64,32 @@ impl RuleUpdateConfig {
         );
         let install_id =
             crate::licensing::storage::load_or_create_install_id().unwrap_or_default();
-        Some(Self {
+        Self {
             worker_base: worker_base.trim_end_matches('/').to_string(),
             support_key,
             rules_dir,
             install_id,
-        })
+        }
+    }
+
+    /// Build from the environment only. Returns `None` when no support key is
+    /// configured (free agents / no plan) so the updater is a clean no-op.
+    pub fn from_env() -> Option<Self> {
+        Self::resolve_support_key(std::env::var("TC_SUPPORT_KEY").ok(), None).map(Self::with_key)
+    }
+
+    /// Build from the environment, falling back to the dashboard-stored support
+    /// key (`_system`/`tc_support_key`) when the env var is unset — so an
+    /// operator can activate premium auto-update from the UI, not just via env.
+    pub async fn from_env_or_store(store: &dyn crate::db::Database) -> Option<Self> {
+        let from_store = store
+            .get_setting(SUPPORT_KEY_NS, SUPPORT_KEY_SETTING)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(str::to_string));
+        Self::resolve_support_key(std::env::var("TC_SUPPORT_KEY").ok(), from_store)
+            .map(Self::with_key)
     }
 
     fn manifest_url(&self) -> String {
@@ -218,6 +253,21 @@ mod tests {
         );
         assert_eq!(parse_manifest_version("not json"), None);
         assert_eq!(parse_manifest_version(r#"{"packs":[]}"#), None);
+    }
+
+    #[test]
+    fn resolve_support_key_env_wins_then_store_then_none() {
+        let r = RuleUpdateConfig::resolve_support_key;
+        // env wins when both present
+        assert_eq!(r(Some("env".into()), Some("store".into())).as_deref(), Some("env"));
+        // empty/whitespace env falls back to the stored key
+        assert_eq!(r(Some("   ".into()), Some("store".into())).as_deref(), Some("store"));
+        // store-only
+        assert_eq!(r(None, Some("store".into())).as_deref(), Some("store"));
+        // trimmed
+        assert_eq!(r(Some("  k  ".into()), None).as_deref(), Some("k"));
+        // nothing
+        assert_eq!(r(None, None), None);
     }
 
     #[test]
