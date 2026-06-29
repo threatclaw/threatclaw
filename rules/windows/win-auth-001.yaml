@@ -1,6 +1,7 @@
+# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: Kerberoasting — RC4 TGS Request
 id: win-auth-001
-status: stable
+status: unsupported
 description: |
   Detects TGS service ticket requests using RC4 encryption (etype 0x17), typical of Kerberoasting attacks
 references:

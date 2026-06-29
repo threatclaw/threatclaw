@@ -1,6 +1,7 @@
+# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: DCSync — Directory Replication
 id: win-auth-003
-status: stable
+status: unsupported
 description: |
   Detects DCSync attack via directory replication requests
 references:

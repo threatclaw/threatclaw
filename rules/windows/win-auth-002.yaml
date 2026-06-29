@@ -1,6 +1,7 @@
+# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: Brute Force Authentication
 id: win-auth-002
-status: stable
+status: unsupported
 description: |
   Detects brute force login attempts via Wazuh rules 5551/5503/5710
 references:

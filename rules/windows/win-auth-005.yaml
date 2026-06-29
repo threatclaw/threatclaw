@@ -1,6 +1,7 @@
+# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: Pass-the-Hash — NTLM Logon
 id: win-auth-005
-status: stable
+status: unsupported
 description: |
   Detects NTLM network logon that may indicate pass-the-hash
 references:

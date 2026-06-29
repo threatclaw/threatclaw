@@ -1,6 +1,7 @@
+# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: Suspicious Service Installed
 id: win-auth-008
-status: stable
+status: unsupported
 description: |
   Detects new service installation for persistence
 references:
