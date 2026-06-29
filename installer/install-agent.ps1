@@ -611,8 +611,14 @@ function Collect-Events($name, $channel, $eventFilter) {
     }
     return [pscustomobject]@{ raw = (JsonChunk $raw); truncated = $truncated }
 }
-$sec = Collect-Events "windows_security_events" "Security" "eventid IN (4625,4720,4726,4732,4756,1102)"
-$ps  = Collect-Events "powershell_events" "Microsoft-Windows-PowerShell/Operational" "eventid = 4104"
+# Phase 3: event-id set aligned with the rewritten win-auth detections (the server
+# emits every Security event generically, so the rule's channel+eventid match drives
+# detection). Added: 4624 (PtH/RDP), 4662 (DCSync), 4728 (priv-group add), 4768/4769
+# (Kerberos/Kerberoasting), 4776 (NTLM cred validation). 4688/4672 left OUT on
+# purpose (very high volume, no rule consumes them yet — audit policy enables them
+# so they can be added later without re-rolling the host).
+$sec = Collect-Events "windows_security_events" "Security" "eventid IN (4624,4625,4662,4720,4726,4728,4732,4756,4768,4769,4776,1102)"
+$ps  = Collect-Events "powershell_events" "Microsoft-Windows-PowerShell/Operational" "eventid IN (4103,4104)"
 
 # Skip cert validation for self-signed TLS (also needed for the manifest call below)
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"
