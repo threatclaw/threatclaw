@@ -1,10 +1,14 @@
 title: User Account Created
 id: win-auth-006
-status: stable
+status: unsupported
 description: |
-  Detects creation of a Windows user account (Event 4720). Rewritten from the legacy
-  bare-token form to the real eventid on the Security channel. Persistence /
-  account-manipulation visibility; a SOC reviews unexpected account creations.
+  Detects creation of a Windows user account (Event 4720). Disabled (status:
+  unsupported) because the osquery Security-event connector already emits a richer
+  native detection for 4720 (osquery-win-user-created — resolves actor and target,
+  feeds the asset graph). Kept in the bundle, loaded DISABLED, to avoid duplicate
+  alerts and double-counting the risk score. Re-enable only if the native path is
+  removed. Rewritten from the legacy bare-token form to the real eventid on the
+  Security channel for reference.
 references:
   - https://attack.mitre.org/techniques/T1136/001/
 author: ThreatClaw

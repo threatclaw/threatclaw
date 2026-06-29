@@ -1,12 +1,15 @@
-title: Admin Group Membership Change
+title: Domain Admin Group Membership Change
 id: win-auth-007
 status: stable
 description: |
-  Detects a member added to a privileged group (Events 4728 global / 4732 local /
-  4756 universal) where the target group is a well-known admin group, matched by RID
-  suffix on the group SID (locale-independent): -512 Domain Admins, -519 Enterprise
-  Admins, -518 Schema Admins, -544 Administrators, -516 Domain Controllers.
-  Rewritten from the legacy bare-token form to the real eventids + SID.
+  Detects a member added to a privileged GLOBAL/domain security group (Event 4728)
+  where the target group is a well-known admin group, matched by RID suffix on the
+  group SID (locale-independent): -512 Domain Admins, -519 Enterprise Admins, -518
+  Schema Admins, -544 Administrators, -516 Domain Controllers.
+  Scoped to 4728 only: the local (4732) and universal (4756) member-add events are
+  already covered by the richer native osquery detection (osquery-win-group-membership-add),
+  so this rule deliberately handles only the domain-group case that path misses
+  (logged on the DC). Rewritten from the legacy bare-token form to the real eventid + SID.
 references:
   - https://attack.mitre.org/techniques/T1098/
 author: ThreatClaw
@@ -21,10 +24,7 @@ logsource:
 detection:
   selection:
     channel: Security
-    eventid:
-      - '4728'
-      - '4732'
-      - '4756'
+    eventid: '4728'
   privileged_group:
     'data.TargetSid|endswith':
       - '-512'
