@@ -1,17 +1,22 @@
 rule: win-auth-009
 
-# Auto-generated minimal fixture — hand-polish welcome.
 # `positive` events must match the rule; `negative` must not.
 
 positive:
-  - description: First positive value from the rule selection
+  - description: Real Windows Event 1102 on the Security channel
     event:
-      commandline: 1102
-  - description: Second positive value from the rule selection
-    event:
-      commandline: audit log was cleared
+      channel: Security
+      eventid: '1102'
 
 negative:
-  - description: Unrelated event that should not trigger
+  - description: ThreatClaw's own osquery collector query (the old false positive)
     event:
-      commandline: cmd.exe /c echo normal-operation
+      commandline: '"C:\Program Files\osquery\osqueryi.exe" --json "SELECT datetime, eventid, data FROM windows_eventlog WHERE channel = ''Security'' AND eventid IN (4625,4720,4726,4732,4756,1102)"'
+  - description: A different Security event that is not a log clear
+    event:
+      channel: Security
+      eventid: '4624'
+  - description: A real log clear on a non-Security channel must not match
+    event:
+      channel: System
+      eventid: '1102'
