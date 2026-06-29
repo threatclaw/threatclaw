@@ -5,6 +5,7 @@
 //! alert, dns, http, tls, flow, fileinfo, anomaly, dhcp, smtp, ssh, stats.
 //! This connector reads eve.json and creates sigma alerts for IDS detections.
 
+use crate::connectors::webhook_ingest::LogBatch;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
@@ -72,6 +73,9 @@ pub async fn sync_suricata(store: &dyn Database, config: &SuricataConfig) -> Sur
         }
     };
 
+    // Phase 2b — batch the per-event log writes (a busy sensor streams many
+    // events per poll). insert_sigma_alert stays per-event (low cardinality).
+    let mut batch = LogBatch::new();
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -125,21 +129,15 @@ pub async fn sync_suricata(store: &dyn Database, config: &SuricataConfig) -> Sur
                 }
 
                 // Also store as log for ML feature extraction
-                let _ = store
-                    .insert_log("suricata.alert", dest_ip, &event, timestamp)
-                    .await;
+                batch.emit("suricata.alert", dest_ip, &event, timestamp);
             }
             "dns" => {
                 result.dns_events += 1;
-                let _ = store
-                    .insert_log("suricata.dns", src_ip, &event, timestamp)
-                    .await;
+                batch.emit("suricata.dns", src_ip, &event, timestamp);
             }
             "flow" => {
                 result.flow_events += 1;
-                let _ = store
-                    .insert_log("suricata.flow", src_ip, &event, timestamp)
-                    .await;
+                batch.emit("suricata.flow", src_ip, &event, timestamp);
 
                 // Detect large flows
                 let bytes_toserver = event["flow"]["bytes_toserver"].as_i64().unwrap_or(0);
@@ -165,18 +163,12 @@ pub async fn sync_suricata(store: &dyn Database, config: &SuricataConfig) -> Sur
                 }
             }
             "tls" | "http" | "ssh" | "smtp" | "fileinfo" => {
-                let _ = store
-                    .insert_log(
-                        &format!("suricata.{}", event_type),
-                        src_ip,
-                        &event,
-                        timestamp,
-                    )
-                    .await;
+                batch.emit(&format!("suricata.{}", event_type), src_ip, &event, timestamp);
             }
             _ => {}
         }
     }
+    batch.flush(store).await;
 
     tracing::info!(
         "SURICATA: {} events, {} alerts, {} DNS, {} flows",

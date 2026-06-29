@@ -4,6 +4,7 @@
 //! This connector reads them from a directory (Docker volume or local path) and ingests into PostgreSQL.
 //! Runs as a persistent skill — polls for new log entries every sync interval.
 
+use crate::connectors::webhook_ingest::LogBatch;
 use crate::db::Database;
 use crate::db::threatclaw_store::ThreatClawStore;
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,8 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
         assets_discovered: 0,
         errors: vec![],
     };
+    // Phase 2b — batch the per-entry log writes across all zeek log types.
+    let mut batch = LogBatch::new();
 
     // Validate path before accessing filesystem
     if let Err(e) = validate_log_path(&config.log_dir) {
@@ -90,23 +93,19 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let orig_bytes = entry["orig_bytes"].as_i64().unwrap_or(0);
                     let _resp_bytes = entry["resp_bytes"].as_i64().unwrap_or(0);
 
-                    crate::connectors::log_db_write(
-                        "zeek:insert_log",
-                        store.insert_log(
-                            "zeek.conn",
-                            dst,
-                            entry,
-                            &entry["ts"]
-                                .as_f64()
-                                .map(|t| {
-                                    chrono::DateTime::from_timestamp(t as i64, 0)
-                                        .map(|dt| dt.to_rfc3339())
-                                        .unwrap_or_default()
-                                })
-                                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
-                        ),
-                    )
-                    .await;
+                    batch.emit(
+                        "zeek.conn",
+                        dst,
+                        entry,
+                        &entry["ts"]
+                            .as_f64()
+                            .map(|t| {
+                                chrono::DateTime::from_timestamp(t as i64, 0)
+                                    .map(|dt| dt.to_rfc3339())
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                    );
 
                     // Long connections (>1h) to external IPs = suspicious
                     if duration > 3600.0 && !crate::agent::ip_classifier::is_private(dst) {
@@ -171,11 +170,7 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
                     let _query = entry["query"].as_str().unwrap_or("");
                     let src = entry["id.orig_h"].as_str().unwrap_or("");
 
-                    crate::connectors::log_db_write(
-                        "zeek:insert_log",
-                        store.insert_log("zeek.dns", src, entry, &chrono::Utc::now().to_rfc3339()),
-                    )
-                    .await;
+                    batch.emit("zeek.dns", src, entry, &chrono::Utc::now().to_rfc3339());
                 }
             }
             Err(e) => result.errors.push(format!("dns.log: {}", e)),
@@ -189,16 +184,12 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.ssl_entries += 1;
-                    crate::connectors::log_db_write(
-                        "zeek:insert_log",
-                        store.insert_log(
-                            "zeek.ssl",
-                            entry["id.orig_h"].as_str().unwrap_or(""),
-                            entry,
-                            &chrono::Utc::now().to_rfc3339(),
-                        ),
-                    )
-                    .await;
+                    batch.emit(
+                        "zeek.ssl",
+                        entry["id.orig_h"].as_str().unwrap_or(""),
+                        entry,
+                        &chrono::Utc::now().to_rfc3339(),
+                    );
 
                     // Expired or self-signed certs
                     let validation = entry["validation_status"].as_str().unwrap_or("");
@@ -232,16 +223,12 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.ssh_entries += 1;
-                    crate::connectors::log_db_write(
-                        "zeek:insert_log",
-                        store.insert_log(
-                            "zeek.ssh",
-                            entry["id.resp_h"].as_str().unwrap_or(""),
-                            entry,
-                            &chrono::Utc::now().to_rfc3339(),
-                        ),
-                    )
-                    .await;
+                    batch.emit(
+                        "zeek.ssh",
+                        entry["id.resp_h"].as_str().unwrap_or(""),
+                        entry,
+                        &chrono::Utc::now().to_rfc3339(),
+                    );
 
                     // Failed SSH auth from external
                     let auth_success = entry["auth_success"].as_bool().unwrap_or(true);
@@ -276,16 +263,12 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
             Ok(entries) => {
                 for entry in &entries {
                     result.http_entries += 1;
-                    crate::connectors::log_db_write(
-                        "zeek:insert_log",
-                        store.insert_log(
-                            "zeek.http",
-                            entry["id.orig_h"].as_str().unwrap_or(""),
-                            entry,
-                            &chrono::Utc::now().to_rfc3339(),
-                        ),
-                    )
-                    .await;
+                    batch.emit(
+                        "zeek.http",
+                        entry["id.orig_h"].as_str().unwrap_or(""),
+                        entry,
+                        &chrono::Utc::now().to_rfc3339(),
+                    );
                 }
             }
             Err(e) => result.errors.push(format!("http.log: {}", e)),
@@ -306,6 +289,7 @@ pub async fn sync_zeek(store: &dyn Database, config: &ZeekConfig) -> ZeekSyncRes
         result.errors.len()
     );
 
+    batch.flush(store).await;
     result
 }
 
