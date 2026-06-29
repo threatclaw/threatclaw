@@ -220,6 +220,39 @@ export default function LicensePage() {
     setBusy(null);
   };
 
+  // Premium key (support plan): validate against the license worker and, when
+  // active, persist it so the agent's rule auto-update picks it up. This is the
+  // single-key path — distinct from the legacy agent-license activation above
+  // (which the air-gap cert paste still reuses).
+  const activatePremium = async () => {
+    setError(null);
+    setInfo(null);
+    setBusy("premium");
+    try {
+      const res = await fetch("/api/tc/premium/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: activateKey.trim() }),
+      });
+      if (!res.ok) {
+        setError((await res.text()) || (fr ? "Clé refusée" : "Key rejected"));
+      } else {
+        const data = await res.json().catch(() => null);
+        setInfo(
+          data?.message ||
+            (fr
+              ? "Clé premium validée — synchronisation des règles activée."
+              : "Premium key validated — rule sync enabled."),
+        );
+        setActivateKey("");
+        await refresh();
+      }
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    }
+    setBusy(null);
+  };
+
   const heartbeat = async (license_key?: string) => {
     setError(null);
     setInfo(null);
@@ -651,11 +684,11 @@ export default function LicensePage() {
           />
           <div style={{ marginTop: "8px" }}>
             <ActionButton
-              onClick={activate}
-              busy={busy === "activate"}
+              onClick={activatePremium}
+              busy={busy === "premium"}
               disabled={!activateKey.trim()}
               icon={<KeyRound size={12} />}
-              label={fr ? "Activer" : "Activate"}
+              label={fr ? "Activer Premium" : "Activate Premium"}
               primary
             />
           </div>
