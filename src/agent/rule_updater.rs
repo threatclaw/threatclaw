@@ -155,6 +155,44 @@ fn count_rule_files(dir: &Path) -> usize {
     count
 }
 
+/// Outcome of validating a support key against the license worker.
+#[derive(Debug, PartialEq)]
+pub enum SupportKeyCheck {
+    /// Key maps to an active support plan — premium auto-update is available.
+    Active,
+    /// Key known but the plan is not active (past_due / cancelled / expired).
+    Inactive,
+    /// Key rejected/malformed, or the worker is unreachable.
+    Rejected(String),
+}
+
+/// Validate a support key by calling the worker manifest endpoint with the key
+/// plus this server's install id. Persists nothing — used by the dashboard's
+/// premium-key activation to give immediate, honest feedback.
+pub async fn check_support_key(key: &str) -> SupportKeyCheck {
+    let key = key.trim();
+    if key.is_empty() {
+        return SupportKeyCheck::Rejected("clé vide".into());
+    }
+    let cfg = RuleUpdateConfig::with_key(key.to_string());
+    let client = match reqwest::Client::builder().timeout(HTTP_TIMEOUT).build() {
+        Ok(c) => c,
+        Err(e) => return SupportKeyCheck::Rejected(format!("client http: {e}")),
+    };
+    match client
+        .get(cfg.manifest_url())
+        .bearer_auth(&cfg.support_key)
+        .header("X-Install-Id", &cfg.install_id)
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => SupportKeyCheck::Active,
+        Ok(r) if r.status().as_u16() == 402 => SupportKeyCheck::Inactive,
+        Ok(r) => SupportKeyCheck::Rejected(format!("worker http {}", r.status())),
+        Err(e) => SupportKeyCheck::Rejected(format!("serveur de licence injoignable: {e}")),
+    }
+}
+
 /// Run one update cycle: check the published version against the last applied
 /// one (persisted in a setting), and if it changed, download + extract the
 /// Sigma pack and refresh the engine. Network failures return `Err` and leave

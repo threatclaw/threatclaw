@@ -492,6 +492,10 @@ pub async fn start_server(
             post(super::handlers::licensing_api::activate_handler),
         )
         .route(
+            "/api/tc/premium/activate",
+            post(super::handlers::licensing_api::premium_activate_handler),
+        )
+        .route(
             "/api/tc/licensing/trial/start",
             post(super::handlers::licensing_api::trial_start_handler),
         )

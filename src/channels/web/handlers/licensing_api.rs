@@ -129,6 +129,56 @@ pub async fn activate_handler(
     Ok(Json(status))
 }
 
+// ── Premium key (support plan) — the single key for rules auto-update ──
+
+#[derive(Debug, Deserialize)]
+pub struct PremiumActivateRequest {
+    pub key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PremiumActivateResponse {
+    pub status: String,
+    pub message: String,
+}
+
+/// Validate a premium (support-plan) key against the license worker and, when
+/// active, persist it so `rule_updater` picks it up — the single-key activation
+/// path that supersedes the legacy agent-license flow for the premium offer.
+pub async fn premium_activate_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<PremiumActivateRequest>,
+) -> ApiResult<PremiumActivateResponse> {
+    let key = req.key.trim();
+    if key.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "clé requise".into()));
+    }
+    let store = state
+        .store
+        .clone()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "store indisponible".into()))?;
+    match crate::agent::rule_updater::check_support_key(key).await {
+        crate::agent::rule_updater::SupportKeyCheck::Active => {
+            store
+                .set_setting("_system", "tc_support_key", &serde_json::json!(key))
+                .await
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("save: {e}")))?;
+            Ok(Json(PremiumActivateResponse {
+                status: "active".into(),
+                message: "Clé premium validée — synchronisation automatique des règles activée."
+                    .into(),
+            }))
+        }
+        crate::agent::rule_updater::SupportKeyCheck::Inactive => Err((
+            StatusCode::PAYMENT_REQUIRED,
+            "Aucun plan premium actif pour cette clé.".into(),
+        )),
+        crate::agent::rule_updater::SupportKeyCheck::Rejected(m) => {
+            Err((StatusCode::BAD_REQUEST, format!("Clé refusée : {m}")))
+        }
+    }
+}
+
 // ── Trial start (60-day free evaluation) ────────────────────────────
 
 #[derive(Debug, Deserialize)]
