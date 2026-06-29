@@ -263,6 +263,50 @@ if ($sysmonSvc -or (Test-Path $SysmonBin)) {
     }
 }
 
+# ── 1b. Advanced audit policy (Phase 3 — Windows coverage) ──────────────────
+# Windows does not GENERATE most ATT&CK-relevant Security events unless the
+# matching advanced-audit subcategory is enabled — collecting them is useless if
+# they never fire. Enable the subcategories that feed the win-auth detections
+# (logon, account/group management, Kerberos, credential validation, process
+# creation) and turn on command-line capture in 4688.
+#
+# Subcategories are addressed by GUID, NOT by name: the names are localised
+# (a French DC rejects English names), the GUIDs are stable across locales.
+# Idempotent (auditpol /set just re-asserts) and non-fatal (an enhancement, like
+# Sysmon — never fail the whole agent install over it).
+try {
+    $auditSubcats = [ordered]@{
+        '{0CCE9215-69AE-11D9-BED3-505054503030}' = 'Logon'                          # 4624/4625
+        '{0CCE9216-69AE-11D9-BED3-505054503030}' = 'Logoff'                         # 4634
+        '{0CCE921B-69AE-11D9-BED3-505054503030}' = 'Special Logon'                  # 4672
+        '{0CCE923F-69AE-11D9-BED3-505054503030}' = 'Credential Validation'          # 4776
+        '{0CCE9242-69AE-11D9-BED3-505054503030}' = 'Kerberos Authentication Service' # 4768
+        '{0CCE9240-69AE-11D9-BED3-505054503030}' = 'Kerberos Service Ticket Ops'    # 4769
+        '{0CCE9235-69AE-11D9-BED3-505054503030}' = 'User Account Management'        # 4720/4726
+        '{0CCE9237-69AE-11D9-BED3-505054503030}' = 'Security Group Management'      # 4728/4732/4756
+        '{0CCE9236-69AE-11D9-BED3-505054503030}' = 'Computer Account Management'    # 4741
+        '{0CCE922B-69AE-11D9-BED3-505054503030}' = 'Process Creation'              # 4688
+    }
+    $auditOk = 0
+    foreach ($guid in $auditSubcats.Keys) {
+        $p = Start-Process -FilePath 'auditpol.exe' `
+            -ArgumentList "/set /subcategory:`"$guid`" /success:enable /failure:enable" `
+            -Wait -PassThru -NoNewWindow -ErrorAction Stop
+        if ($p.ExitCode -eq 0) { $auditOk++ }
+    }
+    # Capture the process command line in Event 4688 (T1059 visibility).
+    $audKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit'
+    New-Item -Path $audKey -Force -ErrorAction SilentlyContinue | Out-Null
+    New-ItemProperty -Path $audKey -Name 'ProcessCreationIncludeCmdLine_Enabled' `
+        -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue | Out-Null
+    Write-TC "Advanced audit policy applied ($auditOk/$($auditSubcats.Count) subcategories + cmdline in 4688)"
+} catch {
+    Write-TC "Audit policy setup skipped ($($_.Exception.Message)) - agent is active; re-run later" -Color Yellow
+}
+# NOTE Phase 3: Directory Service Access (4662, DCSync detection / win-auth-003)
+# needs the DS Access subcategory {0CCE923B-...} AND a SACL on the domain object;
+# DC-specific + high volume → handled separately when the event-id set is frozen.
+
 # ── 2. Configure osquery ────────────────────────────────────────────────────
 
 $ConfDir  = "C:\Program Files\osquery"
