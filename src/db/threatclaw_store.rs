@@ -1173,6 +1173,13 @@ pub trait ThreatClawStore: Send + Sync {
         Ok(0)
     }
 
+    /// Batch-drain up to `limit` rows from the fluent-bit staging table into
+    /// `logs` (Phase 2b T7 — replaces the per-row trigger). Returns rows moved.
+    /// Default: no-op (the staging table is PostgreSQL-only).
+    async fn drain_fluentbit_batch(&self, _limit: i64) -> Result<u64, DatabaseError> {
+        Ok(0)
+    }
+
     /// Insert a sigma alert directly (for testing/simulation).
     async fn insert_sigma_alert(
         &self,

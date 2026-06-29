@@ -1758,6 +1758,37 @@ impl ThreatClawStore for PgBackend {
         Ok(row.get(0))
     }
 
+    async fn drain_fluentbit_batch(&self, limit: i64) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Atomic move of one batch: DELETE ... RETURNING feeds the INSERT, so a
+        // crash leaves the rows in the staging table (re-drained next tick) — no
+        // half-move. `FOR UPDATE SKIP LOCKED` lets the drain coexist with
+        // fluent-bit's concurrent inserts (and any second drainer). The field
+        // mapping mirrors the old fn_fluentbit_to_logs trigger (V29/V75) exactly,
+        // including collector='fluent-bit' so syslog stays OUT of the
+        // NULL-collector dedup index (repeated lines are real events).
+        let n = conn
+            .execute(
+                "WITH moved AS ( \
+                     DELETE FROM logs_fluentbit \
+                     WHERE ctid IN (SELECT ctid FROM logs_fluentbit LIMIT $1 FOR UPDATE SKIP LOCKED) \
+                     RETURNING tag, time, data \
+                 ) \
+                 INSERT INTO logs (tag, time, data, hostname, collector) \
+                 SELECT \
+                     COALESCE(tag, 'unknown'), \
+                     COALESCE(time, now()), \
+                     COALESCE(data, '{}'::jsonb), \
+                     COALESCE(data->>'hostname', data->>'host', split_part(tag, '.', 3)), \
+                     COALESCE(data->>'collector', 'fluent-bit') \
+                 FROM moved",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
     async fn insert_sigma_alert(
         &self,
         rule_id: &str,

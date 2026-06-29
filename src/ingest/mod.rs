@@ -4,4 +4,4 @@
 
 pub mod metrics;
 pub mod worker;
-pub use worker::spawn_ingest_workers;
+pub use worker::{spawn_fluentbit_drainer, spawn_ingest_workers};

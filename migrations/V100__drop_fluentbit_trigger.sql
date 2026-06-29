@@ -1,0 +1,13 @@
+-- V100 — Drop the per-row fluent-bit staging trigger (Phase 2b — T7).
+--
+-- `trg_fluentbit_ingest` moved each staged syslog row into `logs` one INSERT at a
+-- time via fn_fluentbit_to_logs (V29, hostname fix V75). At 10k-host syslog volume
+-- that per-row path is the last unbatched writer in the pipeline. We drop the
+-- trigger and let a batched drainer (src/ingest fluentbit_drainer) move rows in
+-- bulk, replicating the exact same field mapping (tag/time/data/hostname,
+-- collector defaulting to 'fluent-bit').
+--
+-- The staging table `logs_fluentbit` is kept (it is still fluent-bit's write
+-- target) and so is the function (now unused but harmless — left in place so a
+-- rollback is a one-line CREATE TRIGGER rather than a schema rebuild).
+DROP TRIGGER IF EXISTS trg_fluentbit_ingest ON logs_fluentbit;

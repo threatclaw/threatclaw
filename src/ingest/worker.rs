@@ -74,3 +74,35 @@ async fn run_ingest_worker(worker_id: String, store: Arc<dyn Database>) {
         }
     }
 }
+
+/// Rows moved from the fluent-bit staging table to `logs` per drain tick.
+const FLUENTBIT_DRAIN_BATCH: i64 = 5_000;
+
+/// Spawn the single fluent-bit staging drainer (Phase 2b T7). Replaces the old
+/// per-row `trg_fluentbit_ingest` trigger: instead of one INSERT per syslog line,
+/// one task moves the staging table into `logs` in batches. A no-op on backends
+/// without the staging table (the store method defaults to draining 0).
+pub fn spawn_fluentbit_drainer(store: Arc<dyn Database>) {
+    tokio::spawn(async move { run_fluentbit_drainer(store).await });
+    tracing::info!("INGEST: spawned fluent-bit staging drainer");
+}
+
+async fn run_fluentbit_drainer(store: Arc<dyn Database>) {
+    loop {
+        match store.drain_fluentbit_batch(FLUENTBIT_DRAIN_BATCH).await {
+            Ok(0) => sleep(Duration::from_millis(IDLE_BACKOFF_MS)).await,
+            Ok(n) => {
+                crate::ingest::metrics::add_fluentbit_drained(n);
+                // A full batch means the staging table may still be backed up —
+                // loop straight away to catch up; otherwise back off briefly.
+                if (n as i64) < FLUENTBIT_DRAIN_BATCH {
+                    sleep(Duration::from_millis(IDLE_BACKOFF_MS)).await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("INGEST fluent-bit drainer: {e}");
+                sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
+}

@@ -291,7 +291,10 @@ pub fn start_background_services(
             crate::scans::spawn_schedule_tick(store_clone.clone());
             // Phase 2a: drain the durable webhook ingest_queue off the HTTP path.
             crate::ingest::spawn_ingest_workers(store_clone.clone());
-            tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick + Ingest Workers started");
+            // Phase 2b T7: batch-drain the fluent-bit syslog staging table
+            // (replaces the per-row trigger).
+            crate::ingest::spawn_fluentbit_drainer(store_clone.clone());
+            tracing::info!("AUTO-START: Scan Worker Pool + Schedule Tick + Ingest Workers + Fluent-bit Drainer started");
         }
 
         // Start Investigation Graph task queue (Phase G1b) — recovery
@@ -9897,12 +9900,16 @@ pub async fn ingest_metrics_handler(State(state): State<Arc<GatewayState>>) -> R
          threatclaw_ingest_batch_flushes_total {flush}\n\
          # HELP threatclaw_ingest_rows_written_total Log rows written (post-dedup).\n\
          # TYPE threatclaw_ingest_rows_written_total counter\n\
-         threatclaw_ingest_rows_written_total {rows}\n",
+         threatclaw_ingest_rows_written_total {rows}\n\
+         # HELP threatclaw_ingest_fluentbit_drained_total Syslog rows batch-drained from the fluent-bit staging table.\n\
+         # TYPE threatclaw_ingest_fluentbit_drained_total counter\n\
+         threatclaw_ingest_fluentbit_drained_total {fb}\n",
         enq = c.enqueued_total,
         proc = c.processed_total,
         rej = c.backpressure_rejected_total,
         flush = c.batch_flushes_total,
         rows = c.rows_written_total,
+        fb = c.fluentbit_drained_total,
     );
     (
         [(

@@ -18,6 +18,7 @@ static PROCESSED: AtomicU64 = AtomicU64::new(0);
 static BACKPRESSURE_REJECTED: AtomicU64 = AtomicU64::new(0);
 static BATCH_FLUSHES: AtomicU64 = AtomicU64::new(0);
 static ROWS_WRITTEN: AtomicU64 = AtomicU64::new(0);
+static FLUENTBIT_DRAINED: AtomicU64 = AtomicU64::new(0);
 
 /// A payload was accepted on the hot path and write-ahead-queued.
 #[inline]
@@ -44,6 +45,14 @@ pub fn add_batch_flush(rows: u64) {
     ROWS_WRITTEN.fetch_add(rows, Ordering::Relaxed);
 }
 
+/// `rows` syslog rows were batch-drained from the fluent-bit staging table into
+/// `logs` (replaces the old per-row trigger — T7). Tracked separately so the
+/// syslog drain throughput is visible apart from the agent/webhook path.
+#[inline]
+pub fn add_fluentbit_drained(rows: u64) {
+    FLUENTBIT_DRAINED.fetch_add(rows, Ordering::Relaxed);
+}
+
 /// Immutable snapshot of every counter, for the stats endpoints.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct IngestCounters {
@@ -52,6 +61,7 @@ pub struct IngestCounters {
     pub backpressure_rejected_total: u64,
     pub batch_flushes_total: u64,
     pub rows_written_total: u64,
+    pub fluentbit_drained_total: u64,
 }
 
 /// Read all counters. Each load is `Relaxed`; the snapshot is not a consistent
@@ -64,6 +74,7 @@ pub fn snapshot() -> IngestCounters {
         backpressure_rejected_total: BACKPRESSURE_REJECTED.load(Ordering::Relaxed),
         batch_flushes_total: BATCH_FLUSHES.load(Ordering::Relaxed),
         rows_written_total: ROWS_WRITTEN.load(Ordering::Relaxed),
+        fluentbit_drained_total: FLUENTBIT_DRAINED.load(Ordering::Relaxed),
     }
 }
 

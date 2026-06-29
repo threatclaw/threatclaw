@@ -152,3 +152,72 @@ async fn batch_dedups_clamps_and_spares_syslog() {
     logs_dedup::ensure_logs_dedup_index(be.pool()).await;
     assert!(index_exists(&be).await, "builder rebuilds the index after the fallback window");
 }
+
+/// T7: the batched fluent-bit drainer moves staged syslog rows into `logs` with
+/// the SAME field mapping the old per-row trigger used (hostname from
+/// data.hostname → data.host → tag, collector defaulting to 'fluent-bit'), and
+/// empties the staging table.
+#[tokio::test]
+#[ignore]
+async fn fluentbit_drainer_moves_with_mapping() {
+    let be = backend().await;
+    let nonce = chrono::Utc::now().timestamp_micros();
+    let conn = be.pool().get().await.expect("conn");
+
+    // Defensive: ensure the per-row trigger is gone (migration V100) so staged
+    // rows wait for the batched drainer rather than auto-moving on insert.
+    conn.execute(
+        "DROP TRIGGER IF EXISTS trg_fluentbit_ingest ON logs_fluentbit",
+        &[],
+    )
+    .await
+    .expect("drop trigger");
+
+    // Stage two syslog rows: one carries hostname, one only `host` (fallback).
+    let d1 = serde_json::json!({ "hostname": "fb-host-1", "fbrun": nonce, "msg": "a" });
+    let d2 = serde_json::json!({ "host": "fb-host-2", "fbrun": nonce, "msg": "b" });
+    for d in [&d1, &d2] {
+        conn.execute(
+            "INSERT INTO logs_fluentbit (tag, time, data) VALUES ('sshd.auth.host', now(), $1)",
+            &[d],
+        )
+        .await
+        .expect("stage row");
+    }
+
+    let moved = be.drain_fluentbit_batch(1000).await.expect("drain");
+    assert!(moved >= 2, "both staged rows drained (got {moved})");
+
+    // Landed in logs as syslog (collector='fluent-bit', so OUTSIDE the dedup
+    // index) with the mapped hostnames.
+    let rows = conn
+        .query(
+            "SELECT hostname FROM logs WHERE collector = 'fluent-bit' \
+             AND (data->>'fbrun')::bigint = $1 ORDER BY hostname",
+            &[&nonce],
+        )
+        .await
+        .expect("query logs");
+    assert_eq!(rows.len(), 2, "two syslog rows landed in logs");
+    let h0: Option<String> = rows[0].get(0);
+    let h1: Option<String> = rows[1].get(0);
+    assert_eq!(h0.as_deref(), Some("fb-host-1"), "hostname from data.hostname");
+    assert_eq!(h1.as_deref(), Some("fb-host-2"), "hostname falls back to data.host");
+
+    let staged: i64 = conn
+        .query_one(
+            "SELECT count(*) FROM logs_fluentbit WHERE (data->>'fbrun')::bigint = $1",
+            &[&nonce],
+        )
+        .await
+        .expect("count staging")
+        .get(0);
+    assert_eq!(staged, 0, "staging table drained for this run");
+
+    let _ = conn
+        .execute(
+            "DELETE FROM logs WHERE (data->>'fbrun')::bigint = $1",
+            &[&nonce],
+        )
+        .await;
+}
