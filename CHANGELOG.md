@@ -6,6 +6,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.59-beta] — 2026-06-29
+
+### Added
+- Premium support key activation from the license page, enabling automatic detection-rule updates for subscribed installations.
+- Broader Windows authentication and Active Directory detection coverage (interactive and network logons, account and privileged-group changes, Kerberos service tickets, and service installation).
+
+### Changed
+- Higher ingestion throughput for large fleets: batched writes, de-duplication of repeated agent submissions, and a direct ingestion path for agent and webhook traffic.
+
+### Fixed
+- Windows agent telemetry was silently dropped on non-English hosts (e.g. French-locale servers) because event data was transmitted with the wrong character encoding; the agent now sends UTF-8 correctly so this data lands.
+- Duplicate alerts for some Windows account and group-membership events.
+- Rewrote several Windows detections to remove false positives caused by overly broad matching.
+
 ## [1.0.58-beta] — 2026-06-27
 
 ### Added
