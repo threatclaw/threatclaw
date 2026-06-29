@@ -1,22 +1,20 @@
 rule: win-auth-001
-
-# Kerberoasting RC4 — needs BOTH selection (4769) AND filter_rc4 (0x17 or RC4).
-
 positive:
-  - description: Event 4769 with RC4 etype 0x17
+  - description: TGS (4769) with RC4 for a service SPN — Kerberoasting
     event:
-      commandline: '4769 TGS Request etype 0x17 user svc-sql'
-  - description: Event 4769 with explicit RC4 mention
-    event:
-      commandline: 'EventID=4769 ticket_encryption=RC4'
-
+      channel: Security
+      eventid: '4769'
+      data:
+        ServiceName: 'MSSQLSvc/sql01.interstellar.local:1433'
+        TicketEncryptionType: '0x17'
 negative:
-  - description: 4769 with AES encryption (legit)
+  - description: TGS with AES256 (modern client, legitimate)
     event:
-      commandline: '4769 TGS Request etype 0x12 AES256'
-  - description: Event 4768 (TGT request, different event)
+      channel: Security
+      eventid: '4769'
+      data:
+        ServiceName: 'host/dc01'
+        TicketEncryptionType: '0x12'
+  - description: Command line that happens to contain "4769" (the old false positive)
     event:
-      commandline: '4768 TGT request etype 0x17'
-  - description: Unrelated security event
-    event:
-      commandline: 'EventID=4624 logon success'
+      commandline: 'wevtutil qe Security /q:"*[System[(EventID=4769)]]"'

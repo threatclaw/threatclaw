@@ -1,28 +1,32 @@
-# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: Kerberoasting — RC4 TGS Request
 id: win-auth-001
-status: unsupported
+status: stable
 description: |
-  Detects TGS service ticket requests using RC4 encryption (etype 0x17), typical of Kerberoasting attacks
+  Detects a Kerberos TGS service-ticket request (Event 4769) using RC4 encryption
+  (etype 0x17) for a service SPN — the canonical Kerberoasting smell, since modern
+  Windows negotiates AES. Rewritten from the legacy bare-token form (it matched
+  "4769" anywhere in a command line, a pure false positive) to the real eventid on
+  the Security channel (model win-auth-004/009/010). Complements win-auth-004
+  (Kerberos RC4 anomaly incl. 4768/TGT); this one is scoped to the TGS-for-SPN
+  Kerberoasting pattern.
 references:
   - https://attack.mitre.org/techniques/T1558/003/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-29
 tags:
   - attack.credential_access
   - attack.t1558.003
 logsource:
   category: osquery
-  product: sysmon
+  product: windows
+  service: security
 detection:
   selection:
-    'commandline|contains':
-      - '4769'
-  filter_rc4:
-    'commandline|contains':
-      - '0x17'
-      - RC4
-  condition: selection and filter_rc4
+    channel: Security
+    eventid: '4769'
+    'data.TicketEncryptionType': '0x17'
+    'data.ServiceName|contains': '/'
+  condition: selection
 falsepositives:
-  - Unknown
+  - Legacy services that genuinely cannot negotiate AES. Document the SPN and add a service-scoped exception.
 level: high

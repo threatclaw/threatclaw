@@ -1,17 +1,21 @@
 rule: win-auth-007
-
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: Member added to Administrators (4732, group SID ends -544)
     event:
-      commandline: 4728
-  - description: Second positive value from the rule selection
-    event:
-      commandline: 4732
-
+      channel: Security
+      eventid: '4732'
+      data:
+        TargetSid: 'S-1-5-32-544'
+        MemberName: 'CN=backdoor,CN=Users,DC=interstellar,DC=local'
+        SubjectUserName: attacker
 negative:
-  - description: Unrelated event that should not trigger
+  - description: Member added to a non-privileged group (RID -1108)
     event:
-      commandline: cmd.exe /c echo normal-operation
+      channel: Security
+      eventid: '4732'
+      data:
+        TargetSid: 'S-1-5-21-1111111111-2222222222-3333333333-1108'
+        MemberName: alice
+  - description: Command line that happens to contain "4732" (the old false positive)
+    event:
+      commandline: 'wevtutil qe Security /c:1 /q:"*[System[(EventID=4732)]]"'

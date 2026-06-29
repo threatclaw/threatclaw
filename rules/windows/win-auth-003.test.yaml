@@ -1,17 +1,19 @@
 rule: win-auth-003
-
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: 4662 granting DS-Replication-Get-Changes (DCSync)
     event:
-      commandline: 4662
-  - description: Second positive value from the rule selection
-    event:
-      commandline: DS-Replication-Get-Changes
-
+      channel: Security
+      eventid: '4662'
+      data:
+        SubjectUserName: attacker
+        Properties: 'Control Access {1131f6aa-9c07-11d1-f79f-00c04fc2dcd2}'
 negative:
-  - description: Unrelated event that should not trigger
+  - description: 4662 for an unrelated directory access (different GUID)
     event:
-      commandline: cmd.exe /c echo normal-operation
+      channel: Security
+      eventid: '4662'
+      data:
+        Properties: 'Control Access {00000000-0000-0000-0000-000000000000}'
+  - description: Command line that happens to contain "4662" (the old false positive)
+    event:
+      commandline: 'mimikatz.exe "lsadump::dcsync" exit  rem ref 4662'

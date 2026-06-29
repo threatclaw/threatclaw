@@ -1,17 +1,17 @@
 rule: win-auth-008
-
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: A service was installed (7045 on the System channel)
     event:
-      commandline: 7045
-  - description: Second positive value from the rule selection
-    event:
-      commandline: service was installed
-
+      channel: System
+      eventid: '7045'
+      data:
+        ServiceName: PSEXESVC
+        ImagePath: 'C:\Windows\PSEXESVC.exe'
 negative:
-  - description: Unrelated event that should not trigger
+  - description: 7045 but on the wrong channel (must be System)
     event:
-      commandline: cmd.exe /c echo normal-operation
+      channel: Security
+      eventid: '7045'
+  - description: Command line that happens to contain "7045" (the old false positive)
+    event:
+      commandline: 'sc.exe query state= all  rem audit 7045'

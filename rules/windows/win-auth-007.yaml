@@ -1,30 +1,38 @@
-# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: Admin Group Membership Change
 id: win-auth-007
-status: unsupported
+status: stable
 description: |
-  Detects user added to admin/privileged group
+  Detects a member added to a privileged group (Events 4728 global / 4732 local /
+  4756 universal) where the target group is a well-known admin group, matched by RID
+  suffix on the group SID (locale-independent): -512 Domain Admins, -519 Enterprise
+  Admins, -518 Schema Admins, -544 Administrators, -516 Domain Controllers.
+  Rewritten from the legacy bare-token form to the real eventids + SID.
 references:
   - https://attack.mitre.org/techniques/T1098/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-29
 tags:
   - attack.persistence
   - attack.t1098
 logsource:
   category: osquery
-  product: sysmon
+  product: windows
+  service: security
 detection:
   selection:
-    'commandline|contains':
-      - 4728
-      - 4732
-      - 4756
-      - added to
-      - Administrators
-      - Domain Admins
-      - Enterprise Admins
-  condition: selection
+    channel: Security
+    eventid:
+      - '4728'
+      - '4732'
+      - '4756'
+  privileged_group:
+    'data.TargetSid|endswith':
+      - '-512'
+      - '-519'
+      - '-518'
+      - '-544'
+      - '-516'
+  condition: selection and privileged_group
 falsepositives:
-  - Unknown
+  - Sanctioned privileged-access changes. Correlate with the actor and a change ticket; scope an exception only with strong justification.
 level: high

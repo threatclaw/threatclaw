@@ -1,17 +1,19 @@
 rule: win-auth-006
-
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: A user account was created (4720)
     event:
-      commandline: 4720
-  - description: Second positive value from the rule selection
-    event:
-      commandline: user account was created
-
+      channel: Security
+      eventid: '4720'
+      data:
+        TargetUserName: backdoor
+        SubjectUserName: administrator
 negative:
-  - description: Unrelated event that should not trigger
+  - description: A different account event (4722 enabled) — not creation
     event:
-      commandline: cmd.exe /c echo normal-operation
+      channel: Security
+      eventid: '4722'
+      data:
+        TargetUserName: alice
+  - description: Command line that happens to contain "4720" (the old false positive)
+    event:
+      commandline: 'net helpmsg 4720'

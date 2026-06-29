@@ -1,17 +1,30 @@
 rule: win-auth-005
-
-# Auto-generated minimal fixture — hand-polish welcome.
-# `positive` events must match the rule; `negative` must not.
-
 positive:
-  - description: First positive value from the rule selection
+  - description: NTLM network logon (4624 LogonType 3 + NTLM) — pass-the-hash shape
     event:
-      commandline: 4624
-  - description: Second positive value from the rule selection
-    event:
-      commandline: NTLM
-
+      channel: Security
+      eventid: '4624'
+      data:
+        LogonType: '3'
+        AuthenticationPackageName: NTLM
+        TargetUserName: administrator
+        IpAddress: 10.77.0.50
 negative:
-  - description: Unrelated event that should not trigger
+  - description: Kerberos network logon (4624 LogonType 3 but Kerberos, not NTLM)
     event:
-      commandline: cmd.exe /c echo normal-operation
+      channel: Security
+      eventid: '4624'
+      data:
+        LogonType: '3'
+        AuthenticationPackageName: Kerberos
+        TargetUserName: alice
+  - description: RDP logon (LogonType 10) — not PtH
+    event:
+      channel: Security
+      eventid: '4624'
+      data:
+        LogonType: '10'
+        AuthenticationPackageName: Negotiate
+  - description: Command line that happens to contain "4624 NTLM" (the old false positive)
+    event:
+      commandline: 'powershell -c "Get-WinEvent -FilterHashtable @{Id=4624} | ? { $_.Message -match \"NTLM\" }"'

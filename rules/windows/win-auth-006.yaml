@@ -1,26 +1,26 @@
-# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
 title: User Account Created
 id: win-auth-006
-status: unsupported
+status: stable
 description: |
-  Detects new user account creation
+  Detects creation of a Windows user account (Event 4720). Rewritten from the legacy
+  bare-token form to the real eventid on the Security channel. Persistence /
+  account-manipulation visibility; a SOC reviews unexpected account creations.
 references:
   - https://attack.mitre.org/techniques/T1136/001/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-29
 tags:
   - attack.persistence
   - attack.t1136.001
 logsource:
   category: osquery
-  product: sysmon
+  product: windows
+  service: security
 detection:
   selection:
-    'commandline|contains':
-      - 4720
-      - user account was created
-      - A user account was created
+    channel: Security
+    eventid: '4720'
   condition: selection
 falsepositives:
-  - Unknown
+  - Routine provisioning / IT account creation. Correlate with the actor (SubjectUserName) and change tickets.
 level: medium

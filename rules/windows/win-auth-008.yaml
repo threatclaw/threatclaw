@@ -1,26 +1,28 @@
-# Disabled: legacy bare-token authentication rule, pending rewrite to an eventid-anchored detection.
-title: Suspicious Service Installed
+title: Service Installed
 id: win-auth-008
-status: unsupported
+status: stable
 description: |
-  Detects new service installation for persistence
+  Detects installation of a Windows service (Event 7045, System channel) — a common
+  persistence / lateral-execution step (PsExec, malicious services). Rewritten from
+  the legacy bare-token form to the real eventid. NOTE: 7045 is on the SYSTEM channel
+  (not Security); the agent must collect the System eventlog — see the Phase 3
+  collection plan; this rule is inert until System events are collected.
 references:
   - https://attack.mitre.org/techniques/T1543/003/
 author: ThreatClaw
-date: 2026-06-14
+date: 2026-06-29
 tags:
   - attack.persistence
   - attack.t1543.003
 logsource:
   category: osquery
-  product: sysmon
+  product: windows
+  service: system
 detection:
   selection:
-    'commandline|contains':
-      - 7045
-      - service was installed
-      - A service was installed
+    channel: System
+    eventid: '7045'
   condition: selection
 falsepositives:
-  - Unknown
-level: high
+  - Legitimate software / driver installs register services. Baseline known ServiceName / ImagePath and scope exceptions.
+level: medium
