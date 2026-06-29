@@ -123,6 +123,7 @@ services:
           cpus: "2.0"
     networks:
       - threatclaw-internal   # DB, ML, Fluent-bit, Dashboard
+      - threatclaw-frontend   # nginx → core DIRECT for ingestion (Phase 2b-ii); frontend already lists Core
       - threatclaw-egress     # Internet (APIs, Telegram, cloud LLM)
       - threatclaw-ollama     # Dedicated Ollama access
       - docker-proxy-net      # Docker socket proxy access
@@ -377,12 +378,23 @@ services:
       - "${TC_HTTPS_PORT:-443}:443"
       - "${TC_HTTP_PORT:-80}:80"
     read_only: true
+    environment:
+      # Phase 2b-ii: nginx.conf is an envsubst template so nginx can attach the
+      # gateway Bearer and reach the core DIRECTLY for ingestion (bypassing the
+      # Next.js proxy hop). Same token the dashboard proxy already uses. The
+      # filter restricts substitution to this one var so envsubst never touches
+      # nginx's own runtime variables ($host, $uri, $binary_remote_addr, ...).
+      TC_AUTH_TOKEN: ${TC_AUTH_TOKEN:-}
+      NGINX_ENVSUBST_FILTER: "TC_AUTH_TOKEN"
     tmpfs:
       - /tmp:size=10m,noexec,nosuid,nodev
       - /var/cache/nginx:size=50m
       - /var/run:size=5m
+      - /etc/nginx/conf.d:size=1m   # writable target for the rendered template (root fs is read-only)
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Mounted as an envsubst TEMPLATE (not directly into conf.d): the official
+      # image's 20-envsubst-on-templates.sh renders it into /etc/nginx/conf.d/ at boot.
+      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
       - ./certs:/etc/nginx/certs:ro
       - ./error-pages:/usr/share/nginx/error-pages:ro
     depends_on:
