@@ -27,6 +27,7 @@
 //!   referencing a single /32 host then attaches it to a deny policy.
 //!   Not yet wired here; see ADR-044 + tool_calling.rs.
 
+use crate::connectors::webhook_ingest::LogBatch;
 use crate::db::Database;
 use crate::graph::asset_resolution::{self, DiscoveredAsset};
 use reqwest::Client;
@@ -133,6 +134,9 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         cursor_utm_app_ctrl: config.cursor_utm_app_ctrl.clone(),
         ..Default::default()
     };
+    // Phase 2b — one batch buffers every event type (user/system/forward/UTM)
+    // for this poll; flushed once at the end (UNNEST + ON CONFLICT).
+    let mut batch = LogBatch::new();
 
     let client = match Client::builder()
         .danger_accept_invalid_certs(config.no_tls_verify)
@@ -308,13 +312,8 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                 let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
                     .map(|t| t.to_rfc3339())
                     .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-                if store
-                    .insert_log("fortinet.event.user", &host, ev, &iso)
-                    .await
-                    .is_ok()
-                {
-                    result.user_events_ingested += 1;
-                }
+                batch.emit("fortinet.event.user", &host, ev, &iso);
+                result.user_events_ingested += 1;
             }
             if newest > cursor_user {
                 result.cursor_user_event = Some(newest.to_string());
@@ -351,13 +350,8 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                 let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
                     .map(|t| t.to_rfc3339())
                     .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-                if store
-                    .insert_log("fortinet.event.system", &host, ev, &iso)
-                    .await
-                    .is_ok()
-                {
-                    result.system_events_ingested += 1;
-                }
+                batch.emit("fortinet.event.system", &host, ev, &iso);
+                result.system_events_ingested += 1;
             }
             if newest > cursor_sys {
                 result.cursor_system_event = Some(newest.to_string());
@@ -412,9 +406,7 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                     "policy_id": ev.get("policyid"),
                     "logid": ev.get("logid"),
                 });
-                let _ = store
-                    .insert_log("fortinet.firewall", &host, &payload, &iso)
-                    .await;
+                batch.emit("fortinet.firewall", &host, &payload, &iso);
                 events.push(crate::db::threatclaw_store::NewFirewallEvent {
                     timestamp,
                     fw_source: "fortinet".into(),
@@ -695,9 +687,8 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
                     let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
                         .map(|t| t.to_rfc3339())
                         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-                    if store.insert_log(tag, &host, ev, &iso).await.is_ok() {
-                        count += 1;
-                    }
+                    batch.emit(tag, &host, ev, &iso);
+                    count += 1;
                 }
                 let new_cursor = if newest > cursor {
                     Some(newest.to_string())
@@ -776,6 +767,7 @@ pub async fn sync_fortinet(store: &dyn Database, config: &FortinetConfig) -> For
         result.forward_blocks_ingested,
     );
 
+    batch.flush(store).await;
     result
 }
 

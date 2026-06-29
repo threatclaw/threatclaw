@@ -9,6 +9,7 @@
 //!
 //! Auth: Basic auth (pfSense) or API Key/Secret (OPNsense)
 
+use crate::connectors::webhook_ingest::LogBatch;
 use crate::db::Database;
 use crate::db::threatclaw_store::NewFirewallEvent;
 use crate::graph::asset_resolution::{self, DiscoveredAsset};
@@ -283,6 +284,8 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                     // detection stays on firewall_events via SQL aggregates
                     // — this is the complementary single-line path.
                     let mut sigma_logs = 0usize;
+                    // Phase 2b — batch the per-event block-log mirror.
+                    let mut sigma_batch = LogBatch::new();
                     for ev in &events {
                         if ev.action != "block" {
                             continue;
@@ -301,14 +304,10 @@ pub async fn sync_firewall(store: &dyn Database, config: &FirewallConfig) -> Fir
                         });
                         let host = ev.src_ip.as_deref().unwrap_or("-");
                         let ts = ev.timestamp.to_rfc3339();
-                        if store
-                            .insert_log("opnsense.firewall", host, &entry, &ts)
-                            .await
-                            .is_ok()
-                        {
-                            sigma_logs += 1;
-                        }
+                        sigma_batch.emit("opnsense.firewall", host, &entry, &ts);
+                        sigma_logs += 1;
                     }
+                    sigma_batch.flush(store).await;
                     if sigma_logs > 0 {
                         tracing::debug!(
                             "OPNSENSE: mirrored {} block events into logs for Sigma",
@@ -1123,6 +1122,8 @@ async fn ingest_log_scope(
     let mut newest: Option<chrono::DateTime<chrono::Utc>> = None;
     let mut newest_iso: Option<String> = None;
     let tag = format!("opnsense.{}", scope);
+    // Phase 2b — batch the per-event log writes for this scope.
+    let mut batch = LogBatch::new();
     for row in rows {
         let raw_ts = match row.get("timestamp").and_then(|v| v.as_str()) {
             Some(s) => s,
@@ -1138,14 +1139,14 @@ async fn ingest_log_scope(
             }
         }
         let iso = ts.to_rfc3339();
-        if store.insert_log(&tag, host, &row, &iso).await.is_ok() {
-            count += 1;
-        }
+        batch.emit(&tag, host, &row, &iso);
+        count += 1;
         if newest.is_none_or(|n| ts > n) {
             newest = Some(ts);
             newest_iso = Some(raw_ts.to_string());
         }
     }
+    batch.flush(store).await;
     Ok((count, newest_iso))
 }
 

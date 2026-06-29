@@ -16,6 +16,7 @@
 //!
 //! Cursor: `cursor_last_log_time` keeps the audit log incremental.
 
+use crate::connectors::webhook_ingest::LogBatch;
 use crate::db::Database;
 use crate::db::threatclaw_store::NewFinding;
 use crate::graph::asset_resolution::{self, DiscoveredAsset};
@@ -265,6 +266,9 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                 .cloned()
                 .unwrap_or_default();
             let mut newest = cursor_epoch;
+            // Phase 2b — batch the per-event audit log writes (one UNNEST +
+            // ON CONFLICT per poll; overlapping cursor re-fetches are absorbed).
+            let mut batch = LogBatch::new();
             for ev in &entries {
                 let ts = ev.get("time").and_then(|v| v.as_i64()).unwrap_or(0);
                 if ts <= cursor_epoch {
@@ -277,14 +281,10 @@ pub async fn sync_proxmox(store: &dyn Database, config: &ProxmoxConfig) -> Proxm
                 let iso = chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
                     .map(|t| t.to_rfc3339())
                     .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
-                if store
-                    .insert_log("proxmox.audit", host, ev, &iso)
-                    .await
-                    .is_ok()
-                {
-                    result.audit_events_ingested += 1;
-                }
+                batch.emit("proxmox.audit", host, ev, &iso);
+                result.audit_events_ingested += 1;
             }
+            batch.flush(store).await;
             if newest > cursor_epoch {
                 result.cursor_last_log_time = Some(newest.to_string());
             }
