@@ -9868,7 +9868,7 @@ pub async fn ingest_stats_handler(
     })))
 }
 
-/// GET /api/tc/metrics — Prometheus text exposition of the ingest pipeline, so a
+/// GET /api/tc/ingest/metrics — Prometheus text exposition of the ingest pipeline, so a
 /// Grafana/Prometheus scraper can watch throughput, queue depth and shed-rate
 /// over time. Protected like every other gateway route (scraper sends the
 /// gateway Bearer); no new dependency — the text format is rendered by hand.
