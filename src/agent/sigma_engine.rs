@@ -313,6 +313,45 @@ fn compile_detection(detection: &Value) -> Option<(HashMap<String, Vec<FieldMatc
     Some((selections, condition))
 }
 
+/// false-positive guardrail. True when `value` is a bare decimal integer (e.g. "1102")
+/// posed on a field that is NOT an Event ID field. A `|contains` on such a value
+/// soft-matches the number anywhere in the field (e.g. inside a command line that
+/// happens to list eventid filters), which caused mass false positives. A bare
+/// number on the `eventid` field itself is legitimate, so we exclude those.
+fn is_bare_numeric_contains(field: &str, value: &str) -> bool {
+    let f = field.to_ascii_lowercase();
+    if f.contains("eventid") || f.ends_with("event_id") || f == "id" {
+        return false;
+    }
+    !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// Emit a compile-time WARN (never blocks the rule) when a `|contains` matcher is
+/// fed a bare numeric value on a non-eventid field — the false-positive anti-pattern.
+fn warn_bare_numeric_contains(field: &str, modifier: &str, val: &Value) {
+    if !modifier.contains("contains") {
+        return;
+    }
+    let hits: Vec<String> = match val {
+        Value::String(s) if is_bare_numeric_contains(field, s) => vec![s.clone()],
+        Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter(|s| is_bare_numeric_contains(field, s))
+            .map(String::from)
+            .collect(),
+        _ => Vec::new(),
+    };
+    if !hits.is_empty() {
+        tracing::warn!(
+            "SIGMA COMPILE: field '{}' uses |contains with bare numeric value(s) {:?} — \
+             false-positive pattern (soft substring match); anchor the detection to the eventid field instead",
+            field,
+            hits
+        );
+    }
+}
+
 /// Compile a single selection object into field matchers.
 fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
     let mut matchers = Vec::new();
@@ -333,6 +372,10 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                     .find(|p| **p != "all")
                     .copied()
                     .unwrap_or("");
+
+                // false-positive guardrail: flag bare numeric |contains (e.g. matching an
+                // Event ID inside a command line). Warn only — never blocks.
+                warn_bare_numeric_contains(&field, modifier, val);
 
                 // Expansion modifiers — `|windash`, `|base64`, `|base64offset`,
                 // `|utf16le`/`|wide` — fan a single rule value out into several
@@ -2386,6 +2429,21 @@ mod tests {
         let log = json!({ "port": 22, "score": 9.5 });
         assert_eq!(find_field(&log, "port"), Some("22".into()));
         assert_eq!(find_field(&log, "score"), Some("9.5".into()));
+    }
+
+    // ── false-positive guardrail: bare numeric |contains ──────────────────
+    #[test]
+    fn bare_numeric_contains_guardrail() {
+        // bare integer on a non-eventid field → flagged
+        assert!(is_bare_numeric_contains("commandline", "1102"));
+        assert!(is_bare_numeric_contains("CommandLine", "4624"));
+        // eventid field → legitimate, not flagged
+        assert!(!is_bare_numeric_contains("eventid", "1102"));
+        assert!(!is_bare_numeric_contains("event_id", "4624"));
+        // not a bare decimal → not flagged
+        assert!(!is_bare_numeric_contains("commandline", "0x17"));
+        assert!(!is_bare_numeric_contains("commandline", "powershell"));
+        assert!(!is_bare_numeric_contains("commandline", ""));
     }
 
     // ── eval_matcher ───────────────────────────────────────────────
