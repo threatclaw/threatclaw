@@ -64,6 +64,7 @@ impl LogBatch {
             tracing::warn!("LogBatch flush ({} rows) failed: {e}", self.rows.len());
             0
         });
+        crate::ingest::metrics::add_batch_flush(n);
         self.rows.clear();
         self.seen.clear();
         n

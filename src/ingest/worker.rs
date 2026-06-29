@@ -58,6 +58,7 @@ async fn run_ingest_worker(worker_id: String, store: Arc<dyn Database>) {
                     .await;
                     done.push(row.id);
                 }
+                crate::ingest::metrics::add_processed(done.len() as u64);
                 // Delete what we processed. A crash between process and delete at
                 // worst re-runs a payload next claim; server-side dedup
                 // (burst-dedup / Phase 2b ON CONFLICT) absorbs the duplicate.

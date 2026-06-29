@@ -6139,12 +6139,16 @@ pub async fn webhook_ingest_handler(
                 source,
                 d
             );
+            crate::ingest::metrics::inc_backpressure_rejected();
             return StatusCode::SERVICE_UNAVAILABLE; // 503 — agent re-sends next cycle
         }
         _ => {}
     }
     match store.enqueue_ingest(&source, &decoded).await {
-        Ok(_) => StatusCode::OK,
+        Ok(_) => {
+            crate::ingest::metrics::inc_enqueued();
+            StatusCode::OK
+        }
         Err(e) => {
             tracing::error!("WEBHOOK: enqueue failed for {}: {}", source, e);
             StatusCode::SERVICE_UNAVAILABLE // agent retries; nothing lost
@@ -9827,6 +9831,87 @@ pub async fn log_stats_handler(
         "sources_count": sources.len(),
         "syslog_port": 514,
     })))
+}
+
+// ══════════════════════════════════════════════════════════
+// INGEST PIPELINE OBSERVABILITY (Phase 2b — T8)
+// ══════════════════════════════════════════════════════════
+
+/// GET /api/tc/ingest/stats — ingestion pipeline health.
+///
+/// Answers "is the pipeline keeping up at 10k hosts?": the live durable-queue
+/// depth against its backpressure capacity (+ headroom), whether the hot path is
+/// currently shedding load, recent ingest throughput, and the cumulative
+/// counters from `ingest::metrics`.
+pub async fn ingest_stats_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let depth = store.ingest_queue_depth().await.unwrap_or(0);
+    let capacity = crate::connectors::webhook_ingest::MAX_INGEST_QUEUE_DEPTH;
+    let headroom_pct = if capacity > 0 {
+        ((capacity - depth).max(0) as f64 / capacity as f64) * 100.0
+    } else {
+        0.0
+    };
+    Ok(Json(serde_json::json!({
+        "queue_depth": depth,
+        "queue_capacity": capacity,
+        "queue_headroom_pct": (headroom_pct * 10.0).round() / 10.0,
+        "backpressure": crate::connectors::webhook_ingest::over_backpressure(depth),
+        "ingest_rate_per_min": store.count_logs(1).await.unwrap_or(0),
+        "ingest_rate_per_hour": store.count_logs(60).await.unwrap_or(0),
+        "counters": crate::ingest::metrics::snapshot(),
+    })))
+}
+
+/// GET /api/tc/metrics — Prometheus text exposition of the ingest pipeline, so a
+/// Grafana/Prometheus scraper can watch throughput, queue depth and shed-rate
+/// over time. Protected like every other gateway route (scraper sends the
+/// gateway Bearer); no new dependency — the text format is rendered by hand.
+pub async fn ingest_metrics_handler(State(state): State<Arc<GatewayState>>) -> Response {
+    let depth = match state.store.as_ref() {
+        Some(s) => s.ingest_queue_depth().await.unwrap_or(0),
+        None => 0,
+    };
+    let capacity = crate::connectors::webhook_ingest::MAX_INGEST_QUEUE_DEPTH;
+    let c = crate::ingest::metrics::snapshot();
+    let body = format!(
+        "# HELP threatclaw_ingest_queue_depth Current durable ingest queue depth (unclaimed rows).\n\
+         # TYPE threatclaw_ingest_queue_depth gauge\n\
+         threatclaw_ingest_queue_depth {depth}\n\
+         # HELP threatclaw_ingest_queue_capacity Backpressure threshold; the hot path 503s at this depth.\n\
+         # TYPE threatclaw_ingest_queue_capacity gauge\n\
+         threatclaw_ingest_queue_capacity {capacity}\n\
+         # HELP threatclaw_ingest_enqueued_total Payloads accepted and write-ahead-queued.\n\
+         # TYPE threatclaw_ingest_enqueued_total counter\n\
+         threatclaw_ingest_enqueued_total {enq}\n\
+         # HELP threatclaw_ingest_processed_total Queued payloads drained by the worker pool.\n\
+         # TYPE threatclaw_ingest_processed_total counter\n\
+         threatclaw_ingest_processed_total {proc}\n\
+         # HELP threatclaw_ingest_backpressure_rejected_total Payloads shed with 503 (queue over capacity).\n\
+         # TYPE threatclaw_ingest_backpressure_rejected_total counter\n\
+         threatclaw_ingest_backpressure_rejected_total {rej}\n\
+         # HELP threatclaw_ingest_batch_flushes_total Batched log-insert flushes.\n\
+         # TYPE threatclaw_ingest_batch_flushes_total counter\n\
+         threatclaw_ingest_batch_flushes_total {flush}\n\
+         # HELP threatclaw_ingest_rows_written_total Log rows written (post-dedup).\n\
+         # TYPE threatclaw_ingest_rows_written_total counter\n\
+         threatclaw_ingest_rows_written_total {rows}\n",
+        enq = c.enqueued_total,
+        proc = c.processed_total,
+        rej = c.backpressure_rejected_total,
+        flush = c.batch_flushes_total,
+        rows = c.rows_written_total,
+    );
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    )
+        .into_response()
 }
 
 // ══════════════════════════════════════════════════════════
