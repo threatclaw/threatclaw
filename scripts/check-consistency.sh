@@ -248,7 +248,7 @@ section "8. Agent-installer FP exemption is current"
 # and ThreatClaw would flag its own installer as an attack again. Pin the file to
 # the capture; on mismatch, re-capture the 4104 hashes (procedure in osquery.rs)
 # and update both INSTALLER_SCRIPTBLOCK_SHA256 and EXPECTED_INSTALLER_SHA below.
-EXPECTED_INSTALLER_SHA="bc80f50b981f383ed249d971c2642652f846b158a9687ede7d83cf8c0778bb16"
+EXPECTED_INSTALLER_SHA="aca02a77c448d90d00bf7581b359517264301f24fe3c455bd476767b18b2ac16"
 if [ -f installer/install-agent.ps1 ]; then
   ACTUAL_INSTALLER_SHA=$(sha256sum installer/install-agent.ps1 | awk '{print $1}')
   if [ "$ACTUAL_INSTALLER_SHA" = "$EXPECTED_INSTALLER_SHA" ]; then
