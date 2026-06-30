@@ -163,6 +163,25 @@ pub async fn premium_activate_handler(
                 .set_setting("_system", "tc_support_key", &serde_json::json!(key))
                 .await
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("save: {e}")))?;
+            // Pull the premium rule pack now instead of waiting up to 6h for the
+            // next scheduled cycle — the operator just activated and expects the
+            // full rule set immediately, without restarting the core. Best-effort
+            // and off the request: the key is already persisted, so a failure here
+            // is simply retried by the regular 6h cycle.
+            if let Some(cfg) =
+                crate::agent::rule_updater::RuleUpdateConfig::from_env_or_store(store.as_ref())
+                    .await
+            {
+                let store_pull = store.clone();
+                tokio::spawn(async move {
+                    match crate::agent::rule_updater::run_update_cycle(store_pull.as_ref(), &cfg)
+                        .await
+                    {
+                        Ok(o) => tracing::info!("SIGMA UPDATE (on activation): {o:?}"),
+                        Err(e) => tracing::warn!("SIGMA UPDATE (on activation): {e}"),
+                    }
+                });
+            }
             Ok(Json(PremiumActivateResponse {
                 status: "active".into(),
                 message: "Clé premium validée — synchronisation automatique des règles activée."
