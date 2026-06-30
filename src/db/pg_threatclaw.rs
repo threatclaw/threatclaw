@@ -4977,7 +4977,7 @@ impl ThreatClawStore for PgBackend {
                  SELECT id FROM incidents \
                  WHERE LOWER(asset) IN (SELECT alias FROM asset_aliases) \
                    AND status IN ('open', 'investigating') \
-                   AND updated_at > NOW() - INTERVAL '4 hours' \
+                   AND updated_at > NOW() - INTERVAL '24 hours' \
                    AND ($2::text IS NULL \
                         OR last_pattern_key IS NULL \
                         OR last_pattern_key = $2) \
@@ -5034,8 +5034,11 @@ impl ThreatClawStore for PgBackend {
         &self,
         asset: &str,
     ) -> Result<Option<i32>, DatabaseError> {
-        // Only match incidents from the last 4 hours to allow "fresh" recurring
+        // Only match incidents from the last 24 hours to allow "fresh" recurring
         // incidents to merge, but don't resurrect old ones that were never closed.
+        // Widened from 4h: a still-open incident that recurs the same day (e.g. a
+        // daily CVE/Grype re-scan or an attack re-detected hours later) was minting
+        // a duplicate instead of folding into the open one.
         // Match insensible à la casse (LOWER des deux côtés) parce que les
         // sources d'asset_id varient — Wazuh écrit en uppercase, l'asset
         // ID en DB peut être lowercase, mes injects de test peuvent
@@ -5059,7 +5062,7 @@ impl ThreatClawStore for PgBackend {
                  SELECT id FROM incidents \
                  WHERE LOWER(asset) IN (SELECT alias FROM asset_aliases) \
                    AND status IN ('open', 'investigating') \
-                   AND updated_at > NOW() - INTERVAL '4 hours' \
+                   AND updated_at > NOW() - INTERVAL '24 hours' \
                  ORDER BY created_at DESC LIMIT 1",
                 &[&asset],
             )

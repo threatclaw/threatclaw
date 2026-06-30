@@ -3912,14 +3912,31 @@ pub fn spawn_intelligence_ticker(
                                     .first()
                                     .map(|a| a.rule_id.clone())
                                     .or_else(|| {
-                                        dossier.findings.first().and_then(|f| {
-                                            f.metadata
-                                                .get("rule_id")
-                                                .or_else(|| f.metadata.get("sigma_rule"))
-                                                .and_then(|v| v.as_str())
-                                                .map(String::from)
-                                                .or_else(|| f.source.clone())
-                                        })
+                                        // Key the dedup on the real-attack finding —
+                                        // the same non-predictive choice the title uses
+                                        // — not on a software-vuln/CVE posture finding
+                                        // that merely happens to be first. Otherwise a
+                                        // host's recurring CVE scan keyed the incident on
+                                        // "Grype × osquery" and split the real attack
+                                        // across separate incidents.
+                                        dossier
+                                            .findings
+                                            .iter()
+                                            .find(|f| {
+                                                f.skill_id
+                                                    .as_deref()
+                                                    .map(|s| !PREDICTIVE_SKILLS.contains(&s))
+                                                    .unwrap_or(true)
+                                            })
+                                            .or_else(|| dossier.findings.first())
+                                            .and_then(|f| {
+                                                f.metadata
+                                                    .get("rule_id")
+                                                    .or_else(|| f.metadata.get("sigma_rule"))
+                                                    .and_then(|v| v.as_str())
+                                                    .map(String::from)
+                                                    .or_else(|| f.source.clone())
+                                            })
                                     });
                                 let incident_id = match store
                                     .find_open_incident_for_asset_with_pattern(
@@ -3930,7 +3947,7 @@ pub fn spawn_intelligence_ticker(
                                 {
                                     Ok(Some(existing_id)) => {
                                         tracing::info!(
-                                            "INTELLIGENCE: Reusing existing incident #{} for {} (within 4h dedup window)",
+                                            "INTELLIGENCE: Reusing existing incident #{} for {} (within 24h dedup window)",
                                             existing_id,
                                             worst_asset.asset
                                         );
@@ -3961,7 +3978,7 @@ pub fn spawn_intelligence_ticker(
                                         crate::agent::investigation_log::StepBuilder::new(
                                             crate::db::threatclaw_store::StepKind::IncidentCreated,
                                             format!(
-                                                "Recurrence — incident deduplicated (4h window) · {} alert(s) · pattern='{}'",
+                                                "Recurrence — incident deduplicated (24h window) · {} alert(s) · pattern='{}'",
                                                 worst_asset.active_alerts,
                                                 pattern_key.as_deref().unwrap_or("?")
                                             ),
