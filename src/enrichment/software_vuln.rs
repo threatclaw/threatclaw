@@ -334,7 +334,131 @@ pub async fn scan_asset_software(
         );
     }
 
+    // ── Per-asset exposure score (Grype × KEV × EPSS × criticality × exposure) ──
+    // Roll this asset's actionable vulnerabilities up to one prioritised 0-100
+    // score that drives the asset detail + the "Actions prioritaires" view and,
+    // when notable, feeds the RBA so it escalates to an incident. Computed from
+    // `groups` (the full current actionable posture of this scan), not just the
+    // newly-created findings.
+    if !groups.is_empty() {
+        let mut asset_max_cvss = 0.0_f64;
+        let mut asset_max_epss = 0.0_f64;
+        let mut asset_any_kev = false;
+        // Most actionable group drives the remediation shown: KEV first, then CVSS.
+        let mut top: Option<(&crate::enrichment::grype::GrypeMatch, &str)> = None;
+        for ((package, _version), ms) in &groups {
+            let any_kev = ms.iter().any(|m| m.known_exploited);
+            asset_any_kev |= any_kev;
+            asset_max_cvss = asset_max_cvss.max(ms.iter().filter_map(|m| m.cvss).fold(0.0, f64::max));
+            asset_max_epss = asset_max_epss.max(ms.iter().filter_map(|m| m.epss).fold(0.0, f64::max));
+            let lead = ms
+                .iter()
+                .max_by(|a, b| {
+                    a.cvss
+                        .unwrap_or(0.0)
+                        .partial_cmp(&b.cvss.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
+            let better = match &top {
+                None => true,
+                Some((t, _)) => {
+                    (any_kev && !t.known_exploited)
+                        || (any_kev == t.known_exploited
+                            && lead.cvss.unwrap_or(0.0) > t.cvss.unwrap_or(0.0))
+                }
+            };
+            if better {
+                top = Some((lead, package.as_str()));
+            }
+        }
+
+        let asset = store.get_asset(asset_id).await.ok().flatten();
+        let criticality = asset
+            .as_ref()
+            .map(|a| a.criticality.clone())
+            .unwrap_or_else(|| "medium".to_string());
+        let exposed = asset.as_ref().map(asset_is_exposed).unwrap_or(false);
+
+        let input = crate::enrichment::exposure_score::ExposureInput {
+            max_cvss: asset_max_cvss,
+            in_kev: asset_any_kev,
+            epss_max: asset_max_epss,
+            criticality,
+            exposed,
+        };
+        let res = crate::enrichment::exposure_score::compute_exposure(&input);
+        let (top_cve, top_fix, top_software) = match top {
+            Some((m, pkg)) => (
+                Some(m.cve_id.clone()),
+                m.fixed_version.clone(),
+                Some(pkg.to_string()),
+            ),
+            None => (None, None, None),
+        };
+
+        let _ = store
+            .set_asset_exposure(&crate::db::threatclaw_store::AssetExposure {
+                asset_id: asset_id.to_string(),
+                score: res.score as i16,
+                severity: res.severity.to_string(),
+                breakdown: res.breakdown.clone(),
+                max_cvss: (asset_max_cvss > 0.0).then_some(asset_max_cvss),
+                in_kev: asset_any_kev,
+                epss_max: (asset_max_epss > 0.0).then_some(asset_max_epss),
+                exposed,
+                top_cve,
+                top_fix,
+                top_software,
+                computed_at: String::new(), // set by the DB (NOW())
+            })
+            .await;
+
+        // Notable exposure → push into the RBA pipeline (→ incident the RSSI acts on).
+        if crate::enrichment::exposure_score::is_notable(&input, &res) {
+            let _ = store
+                .insert_risk_event(&crate::db::threatclaw_store::NewRiskEvent {
+                    risk_object: asset_id.to_string(),
+                    object_type: "asset".to_string(),
+                    score: res.score as i32,
+                    source_rule: "software-vuln-exposure".to_string(),
+                    mitre_tactic: None,
+                    mitre_technique: Some("T1190".to_string()),
+                    log_id: None,
+                    message: Some(format!(
+                        "Exposition {} ({}/100) : {}",
+                        res.severity,
+                        res.score,
+                        res.breakdown.join(", ")
+                    )),
+                })
+                .await;
+        }
+    }
+
     result
+}
+
+/// An asset is internet-exposed if it carries the `public_ip` system tag (V98)
+/// or any of its addresses is a public (non-RFC1918/loopback) IP.
+fn asset_is_exposed(asset: &crate::db::threatclaw_store::AssetRecord) -> bool {
+    asset.tags.iter().any(|t| t.eq_ignore_ascii_case("public_ip"))
+        || asset.ip_addresses.iter().any(|ip| is_public_ip(ip))
+}
+
+/// A routable public IP (not RFC1918 / loopback / link-local / unspecified).
+fn is_public_ip(ip: &str) -> bool {
+    match ip.trim().parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast())
+        }
+        Ok(std::net::IpAddr::V6(v6)) => !(v6.is_loopback() || v6.is_unspecified()),
+        Err(_) => false,
+    }
 }
 
 /// Rank a Grype severity string for prioritisation. Negligible/Unknown = 0.
@@ -475,5 +599,18 @@ mod tests {
         let n = rescan_queue_len();
         mark_for_rescan("test-asset-rescan-dedup-9z-2");
         assert_eq!(rescan_queue_len(), n + 1);
+    }
+
+    #[test]
+    fn is_public_ip_classifies_routable_addresses() {
+        assert!(is_public_ip("8.8.8.8"));
+        assert!(is_public_ip("149.71.41.85"));
+        assert!(!is_public_ip("192.168.1.10"));
+        assert!(!is_public_ip("10.0.0.5"));
+        assert!(!is_public_ip("172.16.0.1"));
+        assert!(!is_public_ip("127.0.0.1"));
+        assert!(!is_public_ip("169.254.1.1"));
+        assert!(!is_public_ip("not-an-ip"));
+        assert!(!is_public_ip(""));
     }
 }

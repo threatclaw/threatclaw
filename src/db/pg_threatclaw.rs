@@ -206,6 +206,29 @@ fn split_return_columns(return_clause: &str) -> Vec<String> {
     cols
 }
 
+/// Map a row from `asset_exposure` (V101) into the store struct. Column order
+/// must match the SELECT in `get_asset_exposure` / `list_asset_exposures`.
+fn map_asset_exposure(
+    r: &tokio_postgres::Row,
+) -> crate::db::threatclaw_store::AssetExposure {
+    crate::db::threatclaw_store::AssetExposure {
+        asset_id: r.get(0),
+        score: r.get(1),
+        severity: r.get(2),
+        breakdown: serde_json::from_value(r.get::<_, serde_json::Value>(3)).unwrap_or_default(),
+        max_cvss: r.get::<_, Option<f32>>(4).map(|v| v as f64),
+        in_kev: r.get(5),
+        epss_max: r.get::<_, Option<f32>>(6).map(|v| v as f64),
+        exposed: r.get(7),
+        top_cve: r.get(8),
+        top_fix: r.get(9),
+        top_software: r.get(10),
+        computed_at: r
+            .get::<_, chrono::DateTime<chrono::Utc>>(11)
+            .to_rfc3339(),
+    }
+}
+
 #[async_trait]
 impl ThreatClawStore for PgBackend {
     async fn insert_finding(&self, f: &NewFinding) -> Result<i64, DatabaseError> {
@@ -3861,6 +3884,69 @@ impl ThreatClawStore for PgBackend {
             &[&asset_id, &score_f32, &reason, features],
         ).await.map_err(query_err)?;
         Ok(())
+    }
+
+    // ── Asset exposure score (V101) ──
+
+    async fn set_asset_exposure(
+        &self,
+        e: &crate::db::threatclaw_store::AssetExposure,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let breakdown =
+            serde_json::to_value(&e.breakdown).unwrap_or_else(|_| serde_json::json!([]));
+        let max_cvss = e.max_cvss.map(|v| v as f32);
+        let epss_max = e.epss_max.map(|v| v as f32);
+        conn.execute(
+            "INSERT INTO asset_exposure \
+               (asset_id, score, severity, breakdown, max_cvss, in_kev, epss_max, exposed, top_cve, top_fix, top_software, computed_at) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, NOW()) \
+             ON CONFLICT (asset_id) DO UPDATE SET \
+               score=EXCLUDED.score, severity=EXCLUDED.severity, breakdown=EXCLUDED.breakdown, \
+               max_cvss=EXCLUDED.max_cvss, in_kev=EXCLUDED.in_kev, epss_max=EXCLUDED.epss_max, \
+               exposed=EXCLUDED.exposed, top_cve=EXCLUDED.top_cve, top_fix=EXCLUDED.top_fix, \
+               top_software=EXCLUDED.top_software, computed_at=NOW()",
+            &[
+                &e.asset_id, &e.score, &e.severity, &breakdown, &max_cvss, &e.in_kev,
+                &epss_max, &e.exposed, &e.top_cve, &e.top_fix, &e.top_software,
+            ],
+        )
+        .await
+        .map_err(query_err)?;
+        Ok(())
+    }
+
+    async fn get_asset_exposure(
+        &self,
+        asset_id: &str,
+    ) -> Result<Option<crate::db::threatclaw_store::AssetExposure>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT asset_id, score, severity, breakdown, max_cvss, in_kev, epss_max, exposed, top_cve, top_fix, top_software, computed_at \
+                 FROM asset_exposure WHERE asset_id = $1",
+                &[&asset_id],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.first().map(map_asset_exposure))
+    }
+
+    async fn list_asset_exposures(
+        &self,
+        min_score: i16,
+        limit: i64,
+    ) -> Result<Vec<crate::db::threatclaw_store::AssetExposure>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT asset_id, score, severity, breakdown, max_cvss, in_kev, epss_max, exposed, top_cve, top_fix, top_software, computed_at \
+                 FROM asset_exposure WHERE score >= $1 ORDER BY score DESC, computed_at DESC LIMIT $2",
+                &[&min_score, &limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.iter().map(map_asset_exposure).collect())
     }
 
     // ── Incidents (See ADR-043) ──

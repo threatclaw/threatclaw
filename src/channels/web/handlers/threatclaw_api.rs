@@ -425,6 +425,102 @@ pub async fn findings_list_handler(
     }))
 }
 
+#[derive(serde::Deserialize)]
+pub struct PriorityActionsQuery {
+    pub limit: Option<i64>,
+    /// Only assets at/above this exposure score (0-100). Default 40 (≥ MEDIUM).
+    pub min_score: Option<i16>,
+}
+
+/// One actionable item in the "Actions prioritaires" list: an at-risk asset and
+/// the single highest-impact remediation (patch X to fixed-version Y).
+#[derive(serde::Serialize)]
+pub struct PriorityAction {
+    pub asset_id: String,
+    pub asset_name: String,
+    pub score: i16,
+    pub severity: String,
+    pub action: &'static str,
+    pub summary: String,
+    pub top_cve: Option<String>,
+    pub top_fix: Option<String>,
+    pub top_software: Option<String>,
+    pub in_kev: bool,
+    pub exposed: bool,
+    pub breakdown: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+pub struct PriorityActionsResponse {
+    pub actions: Vec<PriorityAction>,
+    pub total: usize,
+}
+
+/// Human one-liner for an exposure: what to do, on what, and why it's urgent.
+fn build_action_summary(e: &crate::db::threatclaw_store::AssetExposure) -> String {
+    let soft = e.top_software.as_deref().unwrap_or("le composant vulnérable");
+    let mut s = match e.top_fix.as_deref() {
+        Some(fix) => format!("Mettre à jour {soft} en {fix}"),
+        None => format!("Corriger {soft} (pas de version corrigée publiée — mitiger)"),
+    };
+    if let Some(cve) = &e.top_cve {
+        s.push_str(&format!(" — {cve}"));
+    }
+    let mut tags = Vec::new();
+    if e.in_kev {
+        tags.push("exploité activement (KEV)");
+    }
+    if e.exposed {
+        tags.push("exposé Internet");
+    }
+    if !tags.is_empty() {
+        s.push_str(&format!(" [{}]", tags.join(", ")));
+    }
+    s
+}
+
+/// GET /api/tc/priority-actions — the ordered remediation to-do list. V1 = at-risk
+/// assets to patch, worst exposure first (Grype × KEV × EPSS × criticality × exposure).
+pub async fn priority_actions_handler(
+    State(state): State<Arc<GatewayState>>,
+    Query(q): Query<PriorityActionsQuery>,
+) -> ApiResult<PriorityActionsResponse> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let min_score = q.min_score.unwrap_or(40).clamp(0, 100);
+    let exposures = store
+        .list_asset_exposures(min_score, limit)
+        .await
+        .map_err(db_err)?;
+    let mut actions = Vec::with_capacity(exposures.len());
+    for e in exposures {
+        let asset_name = store
+            .get_asset(&e.asset_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|a| a.name)
+            .unwrap_or_else(|| e.asset_id.clone());
+        let summary = build_action_summary(&e);
+        actions.push(PriorityAction {
+            asset_id: e.asset_id,
+            asset_name,
+            score: e.score,
+            severity: e.severity,
+            action: "patch",
+            summary,
+            top_cve: e.top_cve,
+            top_fix: e.top_fix,
+            top_software: e.top_software,
+            in_kev: e.in_kev,
+            exposed: e.exposed,
+            breakdown: e.breakdown,
+        });
+    }
+    let total = actions.len();
+    Ok(Json(PriorityActionsResponse { actions, total }))
+}
+
 pub async fn findings_create_handler(
     State(state): State<Arc<GatewayState>>,
     Json(finding): Json<NewFinding>,
@@ -7079,12 +7175,17 @@ pub async fn assets_full_handler(
     // observé ?). 3 états déterministes : covered / gap / not_configured.
     let coverage = compute_asset_coverage(store.as_ref(), &asset, &asset_findings, &scans).await;
 
+    // Prioritised exposure score (Grype × KEV × EPSS × criticality × exposure),
+    // computed by the daily vuln scan — drives the asset-page risk banner.
+    let exposure = store.get_asset_exposure(&id).await.ok().flatten();
+
     Ok(Json(serde_json::json!({
         "asset": asset,
         "findings": asset_findings,
         "incidents": asset_incidents,
         "scans": scans,
         "coverage": coverage,
+        "exposure": exposure,
     })))
 }
 

@@ -450,6 +450,25 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn set_asset_exposure(
+        &self,
+        _: &crate::db::threatclaw_store::AssetExposure,
+    ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn get_asset_exposure(
+        &self,
+        _: &str,
+    ) -> Result<Option<crate::db::threatclaw_store::AssetExposure>, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn list_asset_exposures(
+        &self,
+        _: i16,
+        _: i64,
+    ) -> Result<Vec<crate::db::threatclaw_store::AssetExposure>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn create_incident(
         &self,
         _: &str,

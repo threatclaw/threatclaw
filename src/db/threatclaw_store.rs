@@ -81,6 +81,29 @@ pub struct NewFinding {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// Per-asset prioritised exposure score (V101 `asset_exposure`): software-vuln
+/// (Grype) × CISA KEV × EPSS × criticality × network exposure, rolled up to one
+/// explainable 0-100 number plus the single most actionable remediation. Drives
+/// the asset detail, the asset-list sort, and the "Actions prioritaires" view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetExposure {
+    pub asset_id: String,
+    pub score: i16,
+    pub severity: String,
+    pub breakdown: Vec<String>,
+    pub max_cvss: Option<f64>,
+    pub in_kev: bool,
+    pub epss_max: Option<f64>,
+    pub exposed: bool,
+    /// The CVE driving the top action (highest-impact on this asset).
+    pub top_cve: Option<String>,
+    /// The fixed version to upgrade to — the remediation, if Grype knows one.
+    pub top_fix: Option<String>,
+    /// The package to patch.
+    pub top_software: Option<String>,
+    pub computed_at: String,
+}
+
 /// RBA (Phase D1) — a risk event to persist: one `rba_only` rule match that
 /// contributes a weighted score to a risk object (asset or user) instead of
 /// raising a direct alert.
@@ -1575,6 +1598,25 @@ pub trait ThreatClawStore: Send + Sync {
         reason: &str,
         features: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
+
+    // ── Asset exposure score (V101, dedicated table) ──
+
+    /// Upsert an asset's prioritised exposure score (recomputed in place each scan).
+    async fn set_asset_exposure(&self, e: &AssetExposure) -> Result<(), DatabaseError>;
+
+    /// Fetch one asset's exposure score, if it has been computed.
+    async fn get_asset_exposure(
+        &self,
+        asset_id: &str,
+    ) -> Result<Option<AssetExposure>, DatabaseError>;
+
+    /// List asset exposures with `score >= min_score`, worst first — drives the
+    /// asset-list sort and the "Actions prioritaires" view.
+    async fn list_asset_exposures(
+        &self,
+        min_score: i16,
+        limit: i64,
+    ) -> Result<Vec<AssetExposure>, DatabaseError>;
 
     // ── Incidents (See ADR-043) ──
 

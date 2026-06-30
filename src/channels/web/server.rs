@@ -410,6 +410,10 @@ pub async fn start_server(
             get(super::handlers::threatclaw_api::findings_counts_handler),
         )
         .route(
+            "/api/tc/priority-actions",
+            get(super::handlers::threatclaw_api::priority_actions_handler),
+        )
+        .route(
             "/api/tc/findings/{id}",
             get(super::handlers::threatclaw_api::findings_detail_handler),
         )
