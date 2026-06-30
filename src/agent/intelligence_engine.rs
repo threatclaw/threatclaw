@@ -2695,6 +2695,11 @@ async fn self_heal_mitre(store: &dyn Database) {
             &serde_json::json!(chrono::Utc::now().to_rfc3339()),
         )
         .await;
+    // Defer to the R2 'mitre' pack once it owns this feed (premium): the
+    // multi-pack updater keeps ATT&CK fresh from attack-stix-data.
+    if crate::agent::rule_updater::pack_is_managed(store, "mitre").await {
+        return;
+    }
     match crate::enrichment::mitre_attack::sync_attack_techniques(store).await {
         Ok(n) => tracing::info!("SELF_HEAL: MITRE sync OK ({} techniques)", n),
         Err(e) => tracing::warn!("SELF_HEAL: MITRE sync failed: {}", e),
@@ -3514,8 +3519,13 @@ pub fn spawn_intelligence_ticker(
         // MITRE and CERT-FR are bigger — sync in background
         let store_sync = store.clone();
         tokio::spawn(async move {
-            let _ =
-                crate::enrichment::mitre_attack::sync_attack_techniques(store_sync.as_ref()).await;
+            // Skip the direct MITRE sync once the R2 'mitre' pack owns it (and
+            // points at the fresh attack-stix-data source, not deprecated mitre/cti).
+            if !crate::agent::rule_updater::pack_is_managed(store_sync.as_ref(), "mitre").await {
+                let _ =
+                    crate::enrichment::mitre_attack::sync_attack_techniques(store_sync.as_ref())
+                        .await;
+            }
             let _ = crate::enrichment::certfr::sync_certfr_alerts(store_sync.as_ref()).await;
             let _ = crate::enrichment::openphish::sync_feed(store_sync.as_ref()).await;
             let _ = crate::enrichment::misp_circl::sync_feed(store_sync.as_ref()).await;

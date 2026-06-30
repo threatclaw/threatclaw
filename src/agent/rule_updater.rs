@@ -229,12 +229,44 @@ impl PackInstaller for KevInstaller {
     }
 }
 
-/// The installers a normal agent runs. The hub-R2 chantier appends
-/// MITRE/EPSS/IOC/grype-db here as each lands. An installer whose pack the worker
-/// MANIFEST doesn't list yet is simply [`PackOutcome::Skipped`] every cycle —
-/// harmless until the premium side ships that pack.
+/// The MITRE ATT&CK pack — a STIX bundle landed into the same store the live
+/// MITRE sync uses. Reuses [`crate::enrichment::mitre_attack::load_mitre_from_pack`]
+/// so R2 and direct-sync produce identical data. The pack is built from the fresh
+/// `mitre-attack/attack-stix-data` source, fixing the deprecated `mitre/cti` the
+/// in-agent direct sync still points at.
+pub struct MitreInstaller;
+
+#[async_trait]
+impl PackInstaller for MitreInstaller {
+    fn pack_name(&self) -> &'static str {
+        "mitre"
+    }
+    fn download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        format!("{}/api/agent/packs/mitre/download", cfg.worker_base)
+    }
+    fn version_key(&self) -> (&'static str, String) {
+        ("_packs", "mitre_version".to_string())
+    }
+    async fn install(
+        &self,
+        store: &dyn crate::db::Database,
+        _cfg: &RuleUpdateConfig,
+        bytes: &[u8],
+    ) -> Result<usize, String> {
+        crate::enrichment::mitre_attack::load_mitre_from_pack(store, bytes).await
+    }
+}
+
+/// The installers a normal agent runs. The hub-R2 chantier appends EPSS/IOC/
+/// grype-db here as each lands. An installer whose pack the worker MANIFEST
+/// doesn't list yet is simply [`PackOutcome::Skipped`] every cycle — harmless
+/// until the premium side ships that pack.
 pub fn default_installers() -> Vec<Box<dyn PackInstaller>> {
-    vec![Box::new(SigmaInstaller), Box::new(KevInstaller)]
+    vec![
+        Box::new(SigmaInstaller),
+        Box::new(KevInstaller),
+        Box::new(MitreInstaller),
+    ]
 }
 
 /// True once PackSync has applied `pack` at least once (its per-pack version is
@@ -603,10 +635,27 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_lists_sigma_and_kev() {
+    fn default_registry_lists_sigma_kev_mitre() {
         let names: Vec<_> = default_installers().iter().map(|i| i.pack_name()).collect();
         assert!(names.contains(&"sigma-agent"));
         assert!(names.contains(&"kev"));
+        assert!(names.contains(&"mitre"));
+    }
+
+    #[test]
+    fn mitre_installer_url_and_version_key() {
+        let cfg = RuleUpdateConfig {
+            worker_base: "https://license.threatclaw.io".to_string(),
+            support_key: "TC-XXXX".to_string(),
+            rules_dir: PathBuf::from("/app/rules"),
+            install_id: "00000000-0000-4000-8000-000000000000".to_string(),
+        };
+        assert_eq!(
+            MitreInstaller.download_url(&cfg),
+            "https://license.threatclaw.io/api/agent/packs/mitre/download"
+        );
+        let (ns, key) = MitreInstaller.version_key();
+        assert_eq!((ns, key.as_str()), ("_packs", "mitre_version"));
     }
 
     #[test]

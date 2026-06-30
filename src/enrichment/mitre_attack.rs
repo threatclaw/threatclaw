@@ -48,7 +48,17 @@ pub async fn sync_attack_techniques(store: &dyn crate::db::Database) -> Result<u
     let objects = data["objects"]
         .as_array()
         .ok_or("No objects array in STIX bundle")?;
+    load_attack_techniques(store, objects).await
+}
 
+/// Load MITRE ATT&CK `attack-pattern` objects from a STIX bundle into the store
+/// (settings `_mitre` namespace, keyed by technique id) plus the sync meta.
+/// Shared by the live [`sync_attack_techniques`] and the R2 `mitre` pack
+/// installer ([`load_mitre_from_pack`]) so both land identical data.
+pub async fn load_attack_techniques(
+    store: &dyn crate::db::Database,
+    objects: &[serde_json::Value],
+) -> Result<usize, String> {
     let mut count = 0;
 
     for obj in objects {
@@ -148,6 +158,45 @@ pub async fn sync_attack_techniques(store: &dyn crate::db::Database) -> Result<u
     Ok(count)
 }
 
+/// Parse a `mitre` R2 pack into the STIX `objects` array. The pack is the
+/// Enterprise ATT&CK STIX bundle JSON, optionally gzip-compressed (the builder
+/// gzips it; raw JSON is also accepted). Pure — no store writes.
+pub fn parse_mitre_pack(bytes: &[u8]) -> Result<Vec<serde_json::Value>, String> {
+    let json_bytes = maybe_gunzip(bytes)?;
+    let data: serde_json::Value =
+        serde_json::from_slice(&json_bytes).map_err(|e| format!("MITRE pack JSON: {e}"))?;
+    let objects = data["objects"]
+        .as_array()
+        .ok_or("MITRE pack: no objects array")?;
+    Ok(objects.clone())
+}
+
+/// Load a `mitre` R2 pack into the same store destination as a live sync — used
+/// by the multi-pack updater so a premium agent gets ATT&CK from R2 (the fresh
+/// `mitre-attack/attack-stix-data` source) instead of the deprecated `mitre/cti`.
+pub async fn load_mitre_from_pack(
+    store: &dyn crate::db::Database,
+    bytes: &[u8],
+) -> Result<usize, String> {
+    let objects = parse_mitre_pack(bytes)?;
+    load_attack_techniques(store, &objects).await
+}
+
+/// Gunzip `bytes` when they carry the gzip magic (`1f 8b`); otherwise return
+/// them as-is. Lets a pack be served compressed or raw.
+fn maybe_gunzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
+        use std::io::Read;
+        let mut dec = flate2::read::GzDecoder::new(bytes);
+        let mut out = Vec::new();
+        dec.read_to_end(&mut out)
+            .map_err(|e| format!("MITRE pack gunzip: {e}"))?;
+        Ok(out)
+    } else {
+        Ok(bytes.to_vec())
+    }
+}
+
 /// Lookup a technique by ID (e.g., "T1059.001").
 pub async fn lookup_technique(
     store: &dyn crate::db::Database,
@@ -170,5 +219,35 @@ mod tests {
     fn test_technique_id_format() {
         assert!("T1059".starts_with('T'));
         assert!("T1059.001".starts_with('T'));
+    }
+
+    const SAMPLE: &str = r#"{"type":"bundle","objects":[
+        {"type":"attack-pattern","name":"Command and Scripting Interpreter",
+         "external_references":[{"source_name":"mitre-attack","external_id":"T1059","url":"https://attack.mitre.org/techniques/T1059"}]},
+        {"type":"identity","name":"not a technique"}
+    ]}"#;
+
+    fn gzip(s: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(s).unwrap();
+        e.finish().unwrap()
+    }
+
+    #[test]
+    fn parse_mitre_pack_reads_raw_and_gzipped() {
+        let raw = parse_mitre_pack(SAMPLE.as_bytes()).unwrap();
+        assert_eq!(raw.len(), 2, "all objects returned; filtering happens in load");
+        let gz = gzip(SAMPLE.as_bytes());
+        assert_eq!(&gz[0..2], &[0x1f, 0x8b]);
+        let from_gz = parse_mitre_pack(&gz).unwrap();
+        assert_eq!(from_gz.len(), 2);
+        assert_eq!(from_gz[0]["type"], "attack-pattern");
+    }
+
+    #[test]
+    fn parse_mitre_pack_rejects_garbage_and_missing_objects() {
+        assert!(parse_mitre_pack(b"not json").is_err());
+        assert!(parse_mitre_pack(br#"{"type":"bundle"}"#).is_err());
     }
 }
