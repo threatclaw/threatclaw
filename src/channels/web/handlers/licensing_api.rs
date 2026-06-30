@@ -198,6 +198,77 @@ pub async fn premium_activate_handler(
     }
 }
 
+#[derive(Debug, Serialize)]
+pub struct PremiumStatusResponse {
+    /// A premium key is stored (the activation persisted).
+    pub active: bool,
+    /// Masked stored key for display (e.g. `TC-BJ1Q…`), if any.
+    pub key_masked: Option<String>,
+    /// Worker verdict for the stored key: `active` | `inactive` | `unknown`
+    /// (worker unreachable) | `none` (no key stored).
+    pub plan: String,
+    /// Version of the in-agent rule pack currently applied, if any.
+    pub rules_version: Option<String>,
+}
+
+/// GET /api/tc/premium/status — report whether a premium key is stored and live.
+///
+/// The license page reads this on load so an already-activated installation shows
+/// its active state instead of the "go premium" prompt. Activation persists the
+/// key in `_system/tc_support_key`, but without this endpoint the UI had no way to
+/// read it back, so a stored+working key looked un-persisted after a reload.
+pub async fn premium_status_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<PremiumStatusResponse> {
+    let store = state
+        .store
+        .as_ref()
+        .ok_or((StatusCode::SERVICE_UNAVAILABLE, "store indisponible".into()))?;
+
+    let rules_version = store
+        .get_setting("_sigma_rules", "managed_version")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string));
+
+    let key = store
+        .get_setting("_system", "tc_support_key")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .map(|k| k.trim().to_string())
+        .filter(|k| !k.is_empty());
+
+    let Some(key) = key else {
+        return Ok(Json(PremiumStatusResponse {
+            active: false,
+            key_masked: None,
+            plan: "none".into(),
+            rules_version,
+        }));
+    };
+
+    // Light worker revalidation so a past_due/cancelled plan is reflected without
+    // re-entering the key. A worker outage leaves the key stored → plan `unknown`,
+    // never a downgrade to "not activated".
+    let plan = match crate::agent::rule_updater::check_support_key(&key).await {
+        crate::agent::rule_updater::SupportKeyCheck::Active => "active",
+        crate::agent::rule_updater::SupportKeyCheck::Inactive => "inactive",
+        crate::agent::rule_updater::SupportKeyCheck::Rejected(_) => "unknown",
+    }
+    .to_string();
+
+    let key_masked = format!("{}…", key.chars().take(7).collect::<String>());
+    Ok(Json(PremiumStatusResponse {
+        active: true,
+        key_masked: Some(key_masked),
+        plan,
+        rules_version,
+    }))
+}
+
 // ── Trial start (60-day free evaluation) ────────────────────────────
 
 #[derive(Debug, Deserialize)]

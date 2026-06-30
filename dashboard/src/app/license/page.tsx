@@ -160,6 +160,12 @@ export default function LicensePage() {
   const [info, setInfo] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [activateKey, setActivateKey] = useState("");
+  const [premiumStatus, setPremiumStatus] = useState<{
+    active: boolean;
+    key_masked: string | null;
+    plan: string;
+    rules_version: string | null;
+  } | null>(null);
   const [airgapOpen, setAirgapOpen] = useState(false);
   const [airgapCert, setAirgapCert] = useState("");
 
@@ -167,17 +173,19 @@ export default function LicensePage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [instRes, statusRes, billingRes, meRes] = await Promise.all([
+      const [instRes, statusRes, billingRes, meRes, premiumRes] = await Promise.all([
         fetch("/api/tc/license").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch("/api/tc/licensing/status").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch("/api/tc/admin/billing-status").then((r) => (r.ok ? r.json() : null)).catch(() => null),
         fetch("/api/auth/me").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch("/api/tc/premium/status").then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       setInstance(instRes ?? null);
       setLicenseStatus(statusRes ?? null);
       setBilling(billingRes ?? null);
       setUser((meRes as AuthMe | null)?.user ?? null);
       setPerms((meRes as AuthMe | null)?.permissions ?? []);
+      setPremiumStatus(premiumRes ?? null);
     } finally {
       setLoading(false);
     }
@@ -265,14 +273,15 @@ export default function LicensePage() {
         setError((await res.text()) || (fr ? "Mise à jour impossible" : "Update failed"));
       } else {
         const d = await res.json().catch(() => null);
+        const applied = (d?.applied as number) ?? 0;
         setInfo(
-          d?.status === "applied"
+          applied > 0
             ? fr
-              ? `Règles mises à jour — ${d.rules} règles (v${d.version}).`
-              : `Rules updated — ${d.rules} rules (v${d.version}).`
+              ? `Mise à jour communautaire — ${applied} pack(s) appliqué(s).`
+              : `Community update — ${applied} pack(s) applied.`
             : fr
-              ? "Règles déjà à jour."
-              : "Rules already up to date.",
+              ? "Déjà à jour."
+              : "Already up to date.",
         );
       }
     } catch (e: any) {
@@ -665,7 +674,38 @@ export default function LicensePage() {
       </section>
 
       {/* ── 3. Activate license_key (visible if no active license) ── */}
-      {!hasLicense && !loading && (
+      {premiumStatus?.active && (
+        <section style={cardStyle()}>
+          <h2 style={sectionTitle()}>
+            <KeyRound size={14} /> {fr ? "Premium actif" : "Premium active"}
+          </h2>
+          <p style={{ fontSize: "12px", color: "var(--tc-text-sec)", marginBottom: "10px" }}>
+            {premiumStatus.plan === "active"
+              ? fr
+                ? "Clé premium active — synchronisation automatique des règles et threat intel activée."
+                : "Premium key active — automatic rule + threat-intel sync enabled."
+              : premiumStatus.plan === "inactive"
+                ? fr
+                  ? "Clé enregistrée, mais le plan n'est plus actif (échéance ou annulation). Renouvelle sur threatclaw.io."
+                  : "Key stored, but the plan is no longer active (past due / cancelled). Renew on threatclaw.io."
+                : fr
+                  ? "Clé enregistrée — le serveur de licence est momentanément injoignable, le statut sera revérifié."
+                  : "Key stored — the license server is temporarily unreachable; status will be re-checked."}
+          </p>
+          <div style={{ fontSize: "12px", color: "var(--tc-text-sec)", display: "flex", gap: "18px", flexWrap: "wrap" }}>
+            <span>
+              {fr ? "Clé" : "Key"} : <code>{premiumStatus.key_masked}</code>
+            </span>
+            {premiumStatus.rules_version && (
+              <span>
+                {fr ? "Règles" : "Rules"} : v{premiumStatus.rules_version}
+              </span>
+            )}
+          </div>
+        </section>
+      )}
+
+      {!hasLicense && !premiumStatus?.active && !loading && (
         <section style={cardStyle()}>
           <h2 style={sectionTitle()}>
             <KeyRound size={14} /> {isBetaFree ? (fr ? "Une clé Premium ?" : "A Premium key?") : fr ? "Pas encore de licence ?" : "No license yet?"}
