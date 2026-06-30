@@ -469,6 +469,15 @@ impl ThreatClawStore for LibSqlBackend {
     ) -> Result<Vec<crate::db::threatclaw_store::AssetExposure>, DatabaseError> {
         Err(not_supported())
     }
+    async fn bulk_upsert_epss(
+        &self,
+        _: &[crate::db::threatclaw_store::EpssRow],
+    ) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn get_epss(&self, _: &str) -> Result<Option<(f64, f64, String)>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn create_incident(
         &self,
         _: &str,

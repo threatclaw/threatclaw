@@ -3949,6 +3949,57 @@ impl ThreatClawStore for PgBackend {
         Ok(rows.iter().map(map_asset_exposure).collect())
     }
 
+    // ── EPSS scores (V102) ──
+
+    async fn bulk_upsert_epss(
+        &self,
+        rows: &[crate::db::threatclaw_store::EpssRow],
+    ) -> Result<u64, DatabaseError> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let mut total = 0u64;
+        // Chunked UNNEST so a ~280k-row dump doesn't build one giant statement.
+        for chunk in rows.chunks(5000) {
+            let cves: Vec<&str> = chunk.iter().map(|r| r.cve.as_str()).collect();
+            let epss: Vec<f32> = chunk.iter().map(|r| r.epss as f32).collect();
+            let pct: Vec<f32> = chunk.iter().map(|r| r.percentile as f32).collect();
+            let dates: Vec<&str> = chunk.iter().map(|r| r.score_date.as_str()).collect();
+            let n = conn
+                .execute(
+                    "INSERT INTO epss_scores (cve, epss, percentile, score_date) \
+                     SELECT * FROM unnest($1::text[], $2::real[], $3::real[], $4::text[]) \
+                     ON CONFLICT (cve) DO UPDATE SET \
+                       epss = EXCLUDED.epss, percentile = EXCLUDED.percentile, \
+                       score_date = EXCLUDED.score_date, updated_at = NOW()",
+                    &[&cves, &epss, &pct, &dates],
+                )
+                .await
+                .map_err(query_err)?;
+            total += n;
+        }
+        Ok(total)
+    }
+
+    async fn get_epss(&self, cve: &str) -> Result<Option<(f64, f64, String)>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT epss, percentile, score_date FROM epss_scores WHERE cve = $1",
+                &[&cve],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.first().map(|r| {
+            (
+                r.get::<_, f32>(0) as f64,
+                r.get::<_, f32>(1) as f64,
+                r.get::<_, String>(2),
+            )
+        }))
+    }
+
     // ── Incidents (See ADR-043) ──
 
     async fn create_incident(

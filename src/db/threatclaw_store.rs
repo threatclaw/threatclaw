@@ -104,6 +104,16 @@ pub struct AssetExposure {
     pub computed_at: String,
 }
 
+/// One EPSS row from the FIRST daily dump (V102 `epss_scores`). Bulk-loaded by
+/// the hub-R2 `epss` pack so EPSS scoring is local + offline-safe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EpssRow {
+    pub cve: String,
+    pub epss: f64,
+    pub percentile: f64,
+    pub score_date: String,
+}
+
 /// RBA (Phase D1) — a risk event to persist: one `rba_only` rule match that
 /// contributes a weighted score to a risk object (asset or user) instead of
 /// raising a direct alert.
@@ -1617,6 +1627,16 @@ pub trait ThreatClawStore: Send + Sync {
         min_score: i16,
         limit: i64,
     ) -> Result<Vec<AssetExposure>, DatabaseError>;
+
+    // ── EPSS scores (V102, bulk dump from the hub-R2 `epss` pack) ──
+
+    /// Bulk-upsert EPSS rows from the FIRST daily dump (chunked UNNEST). Returns
+    /// the number of rows written.
+    async fn bulk_upsert_epss(&self, rows: &[EpssRow]) -> Result<u64, DatabaseError>;
+
+    /// Read one CVE's locally-mirrored EPSS as `(epss, percentile, score_date)`,
+    /// if present. `lookup_epss_cached` consults this before the live API.
+    async fn get_epss(&self, cve: &str) -> Result<Option<(f64, f64, String)>, DatabaseError>;
 
     // ── Incidents (See ADR-043) ──
 

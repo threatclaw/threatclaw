@@ -257,15 +257,44 @@ impl PackInstaller for MitreInstaller {
     }
 }
 
-/// The installers a normal agent runs. The hub-R2 chantier appends EPSS/IOC/
-/// grype-db here as each lands. An installer whose pack the worker MANIFEST
-/// doesn't list yet is simply [`PackOutcome::Skipped`] every cycle — harmless
-/// until the premium side ships that pack.
+/// The EPSS pack — FIRST's daily full dump landed into the local mirror
+/// (`epss_scores`) via [`crate::enrichment::epss::load_epss_from_pack`], so EPSS
+/// scoring is offline-safe instead of a per-CVE live call. No direct-sync to
+/// defer (EPSS was lookup-only); the pack just pre-populates what the lookup
+/// reads first, and the live API stays a fallback for brand-new CVEs.
+pub struct EpssInstaller;
+
+#[async_trait]
+impl PackInstaller for EpssInstaller {
+    fn pack_name(&self) -> &'static str {
+        "epss"
+    }
+    fn download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        format!("{}/api/agent/packs/epss/download", cfg.worker_base)
+    }
+    fn version_key(&self) -> (&'static str, String) {
+        ("_packs", "epss_version".to_string())
+    }
+    async fn install(
+        &self,
+        store: &dyn crate::db::Database,
+        _cfg: &RuleUpdateConfig,
+        bytes: &[u8],
+    ) -> Result<usize, String> {
+        crate::enrichment::epss::load_epss_from_pack(store, bytes).await
+    }
+}
+
+/// The installers a normal agent runs. The hub-R2 chantier appends IOC/grype-db
+/// here as each lands. An installer whose pack the worker MANIFEST doesn't list
+/// yet is simply [`PackOutcome::Skipped`] every cycle — harmless until the
+/// premium side ships that pack.
 pub fn default_installers() -> Vec<Box<dyn PackInstaller>> {
     vec![
         Box::new(SigmaInstaller),
         Box::new(KevInstaller),
         Box::new(MitreInstaller),
+        Box::new(EpssInstaller),
     ]
 }
 
@@ -635,11 +664,27 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_lists_sigma_kev_mitre() {
+    fn default_registry_lists_all_packs() {
         let names: Vec<_> = default_installers().iter().map(|i| i.pack_name()).collect();
-        assert!(names.contains(&"sigma-agent"));
-        assert!(names.contains(&"kev"));
-        assert!(names.contains(&"mitre"));
+        for p in ["sigma-agent", "kev", "mitre", "epss"] {
+            assert!(names.contains(&p), "registry missing {p}");
+        }
+    }
+
+    #[test]
+    fn epss_installer_url_and_version_key() {
+        let cfg = RuleUpdateConfig {
+            worker_base: "https://license.threatclaw.io".to_string(),
+            support_key: "TC-XXXX".to_string(),
+            rules_dir: PathBuf::from("/app/rules"),
+            install_id: "00000000-0000-4000-8000-000000000000".to_string(),
+        };
+        assert_eq!(
+            EpssInstaller.download_url(&cfg),
+            "https://license.threatclaw.io/api/agent/packs/epss/download"
+        );
+        let (ns, key) = EpssInstaller.version_key();
+        assert_eq!((ns, key.as_str()), ("_packs", "epss_version"));
     }
 
     #[test]
