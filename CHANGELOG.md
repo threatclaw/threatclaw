@@ -6,6 +6,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.60-beta] — 2026-06-30
+
+### Added
+- Prioritised exposure score on each asset: detected software vulnerabilities are now cross-referenced with active-exploitation status (CISA KEV), real-world exploitation probability (EPSS), the asset's criticality and its internet exposure to produce one explainable 0–100 risk score, shown on the asset page.
+- "Actions prioritaires" view in the Incidents section: an ordered remediation to-do list — the most exposed assets to patch first, with the recommended fix for each.
+- Expanded premium threat-intelligence auto-update: subscribed installations now keep CISA KEV, MITRE ATT&CK, EPSS and threat-intelligence indicators continuously fresh, in addition to detection rules. The same public threat-intelligence is also available to every installation through a free monthly community channel.
+
+### Changed
+- Attack-path prediction now recognises internet-facing assets more reliably and uses observed external attacker IPs, so the threat map surfaces paths it previously missed.
+
+### Fixed
+- MITRE ATT&CK technique data is sourced from the current upstream dataset, restoring recent techniques that had stopped updating.
+
 ## [1.0.59-beta] — 2026-06-29
 
 ### Added
