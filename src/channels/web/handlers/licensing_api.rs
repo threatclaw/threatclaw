@@ -321,3 +321,26 @@ pub async fn deactivate_handler(
         status: mgr.status().await,
     }))
 }
+
+/// POST /api/tc/rules/community-update — trigger a one-shot COMMUNITY (free)
+/// Sigma rule pull from the keyless monthly community pack. Gated `rules:edit`
+/// by the route-permission middleware (domain `rules` + write method).
+pub async fn community_rules_update_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let Some(store) = state.store.as_ref() else {
+        return Err((StatusCode::SERVICE_UNAVAILABLE, "store unavailable".to_string()));
+    };
+    match crate::agent::rule_updater::run_community_update(store.as_ref()).await {
+        Ok(crate::agent::rule_updater::PackOutcome::Applied { version, items }) => {
+            Ok(Json(serde_json::json!({
+                "ok": true, "status": "applied", "version": version, "rules": items
+            })))
+        }
+        Ok(crate::agent::rule_updater::PackOutcome::UpToDate) => {
+            Ok(Json(serde_json::json!({ "ok": true, "status": "up_to_date" })))
+        }
+        Ok(other) => Ok(Json(serde_json::json!({ "ok": true, "status": format!("{other:?}") }))),
+        Err(e) => Err((StatusCode::BAD_GATEWAY, e)),
+    }
+}
