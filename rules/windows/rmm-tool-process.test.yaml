@@ -1,0 +1,15 @@
+rule: rmm-tool-process
+positive:
+  - description: TeamViewer running from Program Files
+    event:
+      commandline: 'C:\Program Files\TeamViewer\TeamViewer.exe'
+  - description: ScreenConnect client service
+    event:
+      commandline: 'C:\Windows\Temp\ScreenConnect.ClientService.exe'
+negative:
+  - description: Ordinary system binary
+    event:
+      commandline: 'C:\Windows\System32\svchost.exe -k netsvcs'
+  - description: Generic agent name (filtered out, must not match)
+    event:
+      commandline: 'C:\App\agent.exe --run'
