@@ -1085,9 +1085,25 @@ fn humanize_incident_title(dossier: &crate::agent::incident_dossier::IncidentDos
         return format!("{} on {asset}{from}", alert.rule_name);
     }
 
-    // Pas de sigma alert : titre basé sur les findings (ancien comportement).
-    let top = dossier.findings.first();
-    let count = dossier.findings.len();
+    // Pas de sigma alert : titre basé sur les findings. Une CVE / software-vuln
+    // ne doit JAMAIS titrer un incident — c'est une posture statique (visible
+    // dans /findings), pas la tête d'une attaque. On priorise donc un finding
+    // d'attaque réelle (skill non-prédictif) ; le compteur "N signal(s)" ne
+    // compte que ces findings-là. Un incident qui n'a QUE des findings
+    // prédictifs (cas anomalie qui a passé is_predictive_only) tombe sur le
+    // titre dossier-level générique plutôt que d'afficher "N signaux — <CVE>".
+    let attack_findings: Vec<_> = dossier
+        .findings
+        .iter()
+        .filter(|f| {
+            f.skill_id
+                .as_deref()
+                .map(|s| !PREDICTIVE_SKILLS.contains(&s))
+                .unwrap_or(true)
+        })
+        .collect();
+    let top = attack_findings.first().copied();
+    let count = attack_findings.len();
     if let Some(f) = top {
         // Keep the original English title for pattern matching below
         // (the lc.contains() tests target the EN raw form), then use
@@ -5329,6 +5345,45 @@ mod tests {
     fn empty_dossier_is_not_predictive() {
         let d = mk_dossier(vec![]);
         assert!(!is_predictive_only(&d));
+    }
+
+    #[test]
+    fn cve_findings_never_headline_an_incident_title() {
+        // Regression: a real attack (sigma-sourced finding) sitting next to CVE
+        // (software-vuln) findings must be titled by the attack, and a CVE-only
+        // dossier must never get a "N critical signal(s) — <CVE>" headline. CVEs
+        // are posture (shown in /findings), not the head of an incident.
+        let attack = DossierFinding {
+            title: "Remote Payload Piped To Shell".into(),
+            ..mk_finding("sigma")
+        };
+        let cve1 = DossierFinding {
+            title: "perl 5.40.1-6 — 8 CVE".into(),
+            ..mk_finding("software-vuln")
+        };
+        let cve2 = DossierFinding {
+            title: "openssl — 9 CVE".into(),
+            ..mk_finding("software-vuln")
+        };
+        // CVE findings listed FIRST — must still not win the title.
+        let d = mk_dossier(vec![cve1.clone(), cve2.clone(), attack]);
+        let title = humanize_incident_title(&d);
+        assert!(
+            title.contains("Remote Payload"),
+            "attack must headline the incident, got: {title}"
+        );
+        assert!(
+            !title.to_lowercase().contains("cve") && !title.contains("signal(s)"),
+            "CVE must not appear in the title, got: {title}"
+        );
+
+        // CVE-only dossier → generic dossier-level title, never a CVE headline.
+        let d2 = mk_dossier(vec![cve1, cve2]);
+        let t2 = humanize_incident_title(&d2);
+        assert!(
+            !t2.to_lowercase().contains("cve") && !t2.contains("perl") && !t2.contains("openssl"),
+            "CVE-only dossier must not surface a CVE title, got: {t2}"
+        );
     }
 
     #[test]

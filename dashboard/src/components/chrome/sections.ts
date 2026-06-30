@@ -112,6 +112,14 @@ export const SECTIONS: Record<SectionKey, Section> = {
         tooltipFr: "Outil forensique — tout ce qui a été clos avec son motif (auto-archive ou manuel), filtrable par asset/période/motif.",
         tooltipEn: "Forensic tool — everything closed with its reason, filterable.",
       },
+      {
+        href: "/findings",
+        labelFr: "Détections",
+        labelEn: "Detections",
+        icon: ShieldAlert,
+        tooltipFr: "Vulnérabilités et expositions détectées (CVE, fuites, exposition) — état de risque à corriger, distinct des incidents.",
+        tooltipEn: "Detected vulnerabilities and exposures (CVE, leaks) — risk posture to remediate, distinct from incidents.",
+      },
     ],
   },
   inventaire: {
