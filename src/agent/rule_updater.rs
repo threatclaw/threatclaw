@@ -533,10 +533,11 @@ pub async fn run_community_update(
         .bytes()
         .await
         .map_err(|e| format!("pack body: {e}"))?;
-    if let Some(sha) = expected_sha.as_deref() {
-        if !verify_sha256(&bytes, sha) {
-            return Err("community pack sha256 mismatch".to_string());
-        }
+    if expected_sha
+        .as_deref()
+        .is_some_and(|sha| !verify_sha256(&bytes, sha))
+    {
+        return Err("community pack sha256 mismatch".to_string());
     }
 
     // 4. Install via the Sigma installer (extract → sync → reload), then gate.

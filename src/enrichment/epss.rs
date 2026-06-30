@@ -75,11 +75,9 @@ pub async fn lookup_epss_cached(
 
     // 2. Per-CVE settings cache (today's value).
     if let Ok(Some(cached)) = store.get_setting("_epss", cve_id).await {
-        if let Some(date) = cached["date"].as_str() {
-            let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-            if date == today {
-                return Ok(serde_json::from_value(cached).ok());
-            }
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        if cached["date"].as_str() == Some(today.as_str()) {
+            return Ok(serde_json::from_value(cached).ok());
         }
     }
 
