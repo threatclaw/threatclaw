@@ -99,6 +99,12 @@ services:
       - ./certs/ca.crt:/app/certs/ca.crt:ro
       # Investigation graphs (Phase G) — read-only, ship from repo.
       - ./graphs:/app/graphs:ro
+      # Premium rule auto-update (Chemin B): the rule_updater extracts the
+      # sigma-agent pack from R2 into /app/rules/_managed. The rootfs is
+      # read_only and /app/rules (the bundled rules) ships in the image
+      # layer, so a writable named volume is mounted here — without it the
+      # auto-update fails with "extract: Read-only file system".
+      - core-managed-rules:/app/rules/_managed
     secrets:
       - tc_db_password
       - tc_auth_token
@@ -503,6 +509,7 @@ volumes:
   ollama-data:        # LLM model weights (~5-20GB per model)
   shared-config:      # Auth token shared between core and dashboard
   ml-models:          # ML model weights
+  core-managed-rules: # Premium Sigma pack auto-updated from R2 (Chemin B), read_only rootfs needs a writable mount here
 
 # ── Secrets — See ADR-039, ADR-040 ────────────────────────
 # Mounted as /run/secrets/<name> — never visible in docker inspect

@@ -125,10 +125,24 @@ pub fn parse_manifest_version(body: &str) -> Option<String> {
 /// number of `*.yml` / `*.yaml` files written. The `tar` crate refuses entries
 /// that would escape `dest`, so a hostile archive can't path-traverse.
 pub fn extract_rules_targz(gz_bytes: &[u8], dest: &Path) -> std::io::Result<usize> {
+    // Clear `dest`'s CONTENTS in place rather than removing and recreating the
+    // directory itself. On the hardened image `dest` (/app/rules/_managed) is a
+    // mount point: the rootfs is read_only and a writable volume is mounted here,
+    // so rmdir-ing it fails (EBUSY) and recreating it under the read-only parent
+    // fails (EROFS, os error 30) — which silently broke every premium rule
+    // auto-update. Wiping the contents keeps the mount point intact.
     if dest.exists() {
-        std::fs::remove_dir_all(dest)?;
+        for entry in std::fs::read_dir(dest)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path)?;
+            } else {
+                std::fs::remove_file(&path)?;
+            }
+        }
+    } else {
+        std::fs::create_dir_all(dest)?;
     }
-    std::fs::create_dir_all(dest)?;
     let dec = flate2::read::GzDecoder::new(gz_bytes);
     let mut archive = tar::Archive::new(dec);
     archive.unpack(dest)?;

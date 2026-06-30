@@ -163,7 +163,7 @@ COPY --from=builder /app/rules /app/rules
 # Create non-root user
 RUN groupadd -r -g 1000 threatclaw \
     && useradd -r -u 1000 -g threatclaw -m -d /home/threatclaw -s /bin/bash threatclaw \
-    && mkdir -p /app/data \
+    && mkdir -p /app/data /app/rules/_managed \
     && chown -R threatclaw:threatclaw /app
 
 USER threatclaw
