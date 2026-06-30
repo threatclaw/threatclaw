@@ -194,6 +194,19 @@ pub async fn build_from_feeds(store: &dyn crate::db::Database) -> BloomFilter {
     // HASSH fingerprints (malicious SSH client identification)
     super::ndr_ja3::load_hassh_into_bloom(store, &mut filter).await;
 
+    // Hub-R2 `ioc` pack — consolidated indicators (abuse.ch/MISP/…) mirrored in
+    // the dedicated ioc_indicators table (V103). A Bloom hit is confirmed O(1)
+    // via `store.ioc_exists` in verify_in_cache, so this needs no scattered
+    // settings keys. Capped at the filter capacity.
+    if let Ok(values) = store.ioc_values(BLOOM_CAPACITY as i64).await {
+        for v in &values {
+            filter.insert(v);
+        }
+        if !values.is_empty() {
+            tracing::debug!("BLOOM: loaded {} pack IoC", values.len());
+        }
+    }
+
     tracing::info!(
         "BLOOM: Filter ready — {} IoC, {} KB RAM, ~1% FP rate",
         filter.ioc_count(),
@@ -226,6 +239,74 @@ pub async fn refresh(store: &dyn crate::db::Database) {
     *IOC_BLOOM.write().await = filter;
     let new_count = IOC_BLOOM.read().await.ioc_count();
     tracing::info!("BLOOM: Refreshed — {} → {} IoC", old_count, new_count);
+}
+
+/// Parse an `ioc` R2 pack (NDJSON, optionally gzipped) into normalized rows.
+/// Each line: `{"type":"ip|domain|url|hash","value":"...","source":"..."}`.
+/// Values are trimmed + lowercased to match `verify_in_cache`. Pure — no writes.
+pub fn parse_ioc_pack(
+    bytes: &[u8],
+) -> Result<Vec<crate::db::threatclaw_store::IocRow>, String> {
+    let raw = maybe_gunzip(bytes)?;
+    let text = String::from_utf8_lossy(&raw);
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let (Some(ty), Some(val)) = (v["type"].as_str(), v["value"].as_str()) else {
+            continue;
+        };
+        let value = val.trim().to_lowercase();
+        let ioc_type = ty.trim().to_lowercase();
+        if value.is_empty() || !matches!(ioc_type.as_str(), "ip" | "domain" | "url" | "hash") {
+            continue;
+        }
+        rows.push(crate::db::threatclaw_store::IocRow {
+            value,
+            ioc_type,
+            source: v["source"].as_str().map(|s| s.to_string()),
+        });
+    }
+    if rows.is_empty() {
+        return Err("IOC pack: no rows parsed".to_string());
+    }
+    Ok(rows)
+}
+
+/// Load an `ioc` R2 pack into the dedicated mirror (`ioc_indicators`) and rebuild
+/// the Bloom filter so the new indicators match in real time. Returns row count.
+pub async fn load_ioc_from_pack(
+    store: &dyn crate::db::Database,
+    bytes: &[u8],
+) -> Result<usize, String> {
+    let rows = parse_ioc_pack(bytes)?;
+    let n = store
+        .bulk_upsert_iocs(&rows)
+        .await
+        .map_err(|e| format!("IOC bulk upsert: {e}"))?;
+    refresh(store).await;
+    Ok(n as usize)
+}
+
+/// Gunzip `bytes` when they carry the gzip magic (`1f 8b`); otherwise return
+/// them as-is. Lets a pack be served compressed or raw.
+fn maybe_gunzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
+        use std::io::Read;
+        let mut dec = flate2::read::GzDecoder::new(bytes);
+        let mut out = Vec::new();
+        dec.read_to_end(&mut out)
+            .map_err(|e| format!("IOC pack gunzip: {e}"))?;
+        Ok(out)
+    } else {
+        Ok(bytes.to_vec())
+    }
 }
 
 // ── Real-time log checking ──
@@ -307,6 +388,12 @@ pub async fn check_log(
 async fn verify_in_cache(store: &dyn crate::db::Database, ioc: &str, ioc_type: &str) -> bool {
     let ioc_lower = ioc.to_lowercase();
 
+    // Hub-R2 `ioc` pack mirror (V103) — O(1) PK lookup, confirms a Bloom hit for
+    // any indicator type before falling through to the per-feed caches.
+    if store.ioc_exists(&ioc_lower).await.unwrap_or(false) {
+        return true;
+    }
+
     match ioc_type {
         "ip" => {
             // Check ThreatFox cache
@@ -373,4 +460,37 @@ pub struct DetectedIoc {
     pub source: String,
     pub severity: String,
     pub hostname: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE: &str = "{\"type\":\"ip\",\"value\":\"1.2.3.4\",\"source\":\"feodo\"}\n\
+        {\"type\":\"URL\",\"value\":\"HTTP://Bad.Example/x\",\"source\":\"urlhaus\"}\n\
+        {\"type\":\"hash\",\"value\":\"abc123\"}\n\
+        {\"type\":\"bogus\",\"value\":\"skip-me\"}\n\
+        not-json\n";
+
+    #[test]
+    fn parse_ioc_pack_normalizes_and_filters() {
+        let rows = parse_ioc_pack(SAMPLE.as_bytes()).unwrap();
+        // bogus type + non-json dropped → 3 valid rows
+        assert_eq!(rows.len(), 3);
+        // lowercased value + type
+        assert_eq!(rows[1].ioc_type, "url");
+        assert_eq!(rows[1].value, "http://bad.example/x");
+        assert_eq!(rows[0].source.as_deref(), Some("feodo"));
+        assert_eq!(rows[2].source, None);
+    }
+
+    #[test]
+    fn parse_ioc_pack_handles_gzip_and_empty() {
+        use std::io::Write;
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(SAMPLE.as_bytes()).unwrap();
+        let gz = e.finish().unwrap();
+        assert_eq!(parse_ioc_pack(&gz).unwrap().len(), 3);
+        assert!(parse_ioc_pack(b"not-json\n").is_err());
+    }
 }

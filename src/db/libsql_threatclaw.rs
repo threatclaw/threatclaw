@@ -478,6 +478,18 @@ impl ThreatClawStore for LibSqlBackend {
     async fn get_epss(&self, _: &str) -> Result<Option<(f64, f64, String)>, DatabaseError> {
         Err(not_supported())
     }
+    async fn bulk_upsert_iocs(
+        &self,
+        _: &[crate::db::threatclaw_store::IocRow],
+    ) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn ioc_exists(&self, _: &str) -> Result<bool, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn ioc_values(&self, _: i64) -> Result<Vec<String>, DatabaseError> {
+        Err(not_supported())
+    }
     async fn create_incident(
         &self,
         _: &str,

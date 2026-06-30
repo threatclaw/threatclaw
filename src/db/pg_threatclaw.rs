@@ -4000,6 +4000,60 @@ impl ThreatClawStore for PgBackend {
         }))
     }
 
+    // ── IOC indicators (V103) ──
+
+    async fn bulk_upsert_iocs(
+        &self,
+        rows: &[crate::db::threatclaw_store::IocRow],
+    ) -> Result<u64, DatabaseError> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let mut total = 0u64;
+        for chunk in rows.chunks(5000) {
+            let vals: Vec<&str> = chunk.iter().map(|r| r.value.as_str()).collect();
+            let types: Vec<&str> = chunk.iter().map(|r| r.ioc_type.as_str()).collect();
+            let srcs: Vec<Option<&str>> = chunk.iter().map(|r| r.source.as_deref()).collect();
+            let n = conn
+                .execute(
+                    "INSERT INTO ioc_indicators (value, ioc_type, source) \
+                     SELECT * FROM unnest($1::text[], $2::text[], $3::text[]) \
+                     ON CONFLICT (value) DO UPDATE SET \
+                       ioc_type = EXCLUDED.ioc_type, source = EXCLUDED.source, updated_at = NOW()",
+                    &[&vals, &types, &srcs],
+                )
+                .await
+                .map_err(query_err)?;
+            total += n;
+        }
+        Ok(total)
+    }
+
+    async fn ioc_exists(&self, value: &str) -> Result<bool, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT 1 FROM ioc_indicators WHERE value = $1 LIMIT 1",
+                &[&value],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(!rows.is_empty())
+    }
+
+    async fn ioc_values(&self, limit: i64) -> Result<Vec<String>, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let rows = conn
+            .query(
+                "SELECT value FROM ioc_indicators LIMIT $1",
+                &[&limit],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(rows.iter().map(|r| r.get::<_, String>(0)).collect())
+    }
+
     // ── Incidents (See ADR-043) ──
 
     async fn create_incident(

@@ -330,16 +330,44 @@ impl PackInstaller for EpssInstaller {
     }
 }
 
-/// The installers a normal agent runs. The hub-R2 chantier appends IOC/grype-db
-/// here as each lands. An installer whose pack the worker MANIFEST doesn't list
-/// yet is simply [`PackOutcome::Skipped`] every cycle — harmless until the
-/// premium side ships that pack.
+/// The IOC pack — a consolidated threat-intel indicator set (abuse.ch/MISP/…)
+/// landed into the dedicated `ioc_indicators` mirror and folded into the Bloom
+/// filter via [`crate::agent::ioc_bloom::load_ioc_from_pack`]. Replaces N live
+/// feed calls with one premium/air-gap channel.
+pub struct IocInstaller;
+
+#[async_trait]
+impl PackInstaller for IocInstaller {
+    fn pack_name(&self) -> &'static str {
+        "ioc"
+    }
+    fn download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        format!("{}/api/agent/packs/ioc/download", cfg.worker_base)
+    }
+    fn version_key(&self) -> (&'static str, String) {
+        ("_packs", "ioc_version".to_string())
+    }
+    async fn install(
+        &self,
+        store: &dyn crate::db::Database,
+        _cfg: &RuleUpdateConfig,
+        bytes: &[u8],
+    ) -> Result<usize, String> {
+        crate::agent::ioc_bloom::load_ioc_from_pack(store, bytes).await
+    }
+}
+
+/// The installers a normal agent runs. The hub-R2 chantier appends grype-db here
+/// as it lands. An installer whose pack the worker MANIFEST doesn't list yet is
+/// simply [`PackOutcome::Skipped`] every cycle — harmless until the premium side
+/// ships that pack.
 pub fn default_installers() -> Vec<Box<dyn PackInstaller>> {
     vec![
         Box::new(SigmaInstaller),
         Box::new(KevInstaller),
         Box::new(MitreInstaller),
         Box::new(EpssInstaller),
+        Box::new(IocInstaller),
     ]
 }
 
@@ -820,7 +848,7 @@ mod tests {
     #[test]
     fn default_registry_lists_all_packs() {
         let names: Vec<_> = default_installers().iter().map(|i| i.pack_name()).collect();
-        for p in ["sigma-agent", "kev", "mitre", "epss"] {
+        for p in ["sigma-agent", "kev", "mitre", "epss", "ioc"] {
             assert!(names.contains(&p), "registry missing {p}");
         }
     }

@@ -114,6 +114,15 @@ pub struct EpssRow {
     pub score_date: String,
 }
 
+/// One threat-intel indicator from the hub-R2 `ioc` pack (V103 `ioc_indicators`).
+/// Feeds the Bloom filter + backs its O(1) verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IocRow {
+    pub value: String,
+    pub ioc_type: String,
+    pub source: Option<String>,
+}
+
 /// RBA (Phase D1) — a risk event to persist: one `rba_only` rule match that
 /// contributes a weighted score to a risk object (asset or user) instead of
 /// raising a direct alert.
@@ -1637,6 +1646,17 @@ pub trait ThreatClawStore: Send + Sync {
     /// Read one CVE's locally-mirrored EPSS as `(epss, percentile, score_date)`,
     /// if present. `lookup_epss_cached` consults this before the live API.
     async fn get_epss(&self, cve: &str) -> Result<Option<(f64, f64, String)>, DatabaseError>;
+
+    // ── IOC indicators (V103, hub-R2 `ioc` pack → Bloom) ──
+
+    /// Bulk-upsert IOC indicators (chunked UNNEST). Returns rows written.
+    async fn bulk_upsert_iocs(&self, rows: &[IocRow]) -> Result<u64, DatabaseError>;
+
+    /// O(1) existence check — confirms a Bloom-filter hit against the mirror.
+    async fn ioc_exists(&self, value: &str) -> Result<bool, DatabaseError>;
+
+    /// All indicator values (capped) — read once to (re)build the Bloom filter.
+    async fn ioc_values(&self, limit: i64) -> Result<Vec<String>, DatabaseError>;
 
     // ── Incidents (See ADR-043) ──
 
