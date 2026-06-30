@@ -192,6 +192,27 @@ pub async fn set_asset_criticality_graph(
     mutate(store, &cypher).await
 }
 
+/// Mark an asset's network exposure class in the graph (e.g. `internet`).
+///
+/// Bridges the `public_ip` system tag to attack-path prediction: the IP-based
+/// seeding in `path_risk::seed_path_risk_attributes` only derives `internet`
+/// from a public IP present on the node, so it misses internal/NAT assets that
+/// are nonetheless internet-facing (carrying the `public_ip` tag). Promoting
+/// them here lets `list_exposed_sources` count them as attack sources. `MERGE`
+/// keeps it idempotent if the node isn't synced yet.
+pub async fn set_asset_exposure_class(store: &dyn Database, id: &str, class: &str) -> bool {
+    let id_norm = normalize_asset_id(id);
+    if !validate_id(&id_norm) {
+        return false;
+    }
+    let cypher = format!(
+        "MERGE (a:Asset {{id: '{id}'}}) SET a.exposure_class = '{class}' RETURN a",
+        id = sanitize_cypher_value(&id_norm),
+        class = sanitize_cypher_value(class),
+    );
+    mutate(store, &cypher).await
+}
+
 /// Normalize an asset ID for graph use: lowercase + replace whitespace and
 /// disallowed characters by '-'. Keeps a-z, 0-9, '-', '_', '.'.
 fn normalize_asset_id(id: &str) -> String {

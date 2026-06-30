@@ -385,6 +385,20 @@ async fn seed_path_risk_attributes(store: &dyn Database) {
         warn!("PATH RISK SEED: exposure_class cypher failed: {}", e);
     }
 
+    // Bridge: the IP-based pass above only sees a public IP carried on the graph
+    // node, so it misses internal/NAT assets that are still internet-facing —
+    // those carry the `public_ip` system tag (V98), the same signal the vuln
+    // exposure score uses. Promote them to `internet` so they count as attack
+    // sources (`list_exposed_sources`), connecting exposure to path prediction.
+    if let Ok(assets) = store.list_assets(None, None, 5000, 0).await {
+        for a in assets
+            .iter()
+            .filter(|a| a.tags.iter().any(|t| t.eq_ignore_ascii_case("public_ip")))
+        {
+            crate::graph::threat_graph::set_asset_exposure_class(store, &a.id, "internet").await;
+        }
+    }
+
     // criticality : 3 passes ordonnées (critical > high > medium) sur
     // les assets pas encore promus. CASE imbriqué AGE n'évalue pas
     // toujours dans l'ordre attendu — 3 SET successifs sont plus

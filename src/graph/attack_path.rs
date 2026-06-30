@@ -7,11 +7,6 @@
 use crate::db::Database;
 use crate::graph::threat_graph::query;
 use serde::Serialize;
-use serde_json::json;
-
-fn esc(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('\'', "\\'")
-}
 
 /// A predicted attack path.
 #[derive(Debug, Clone, Serialize)]
@@ -109,13 +104,17 @@ pub async fn predict_attack_paths(store: &dyn Database) -> AttackPathAnalysis {
     }
 }
 
-/// External malicious IPs → intermediate asset → critical asset.
+/// External hostile IPs → intermediate asset → critical asset.
+// `classification` accepts 'suspicious' as well as 'malicious': the graph sync
+// tags external attacker IPs seen in sigma alerts as 'suspicious'
+// (threat_graph.rs upsert_ip) and never writes 'malicious', so a 'malicious'-only
+// gate matched nothing — this finder was structurally dead.
 async fn find_external_to_critical(store: &dyn Database) -> Vec<AttackPath> {
     let results = query(
         store,
         "MATCH (ip:IP)-[:OBSERVED]->(pivot:Asset), \
          (ip2:IP)-[:OBSERVED]->(target:Asset {criticality: 'critical'}) \
-         WHERE ip.classification = 'malicious' AND pivot <> target \
+         WHERE ip.classification IN ['malicious', 'suspicious'] AND pivot <> target \
          RETURN DISTINCT ip.addr, pivot.id, pivot.hostname, target.id, target.hostname \
          LIMIT 20",
     )
@@ -225,11 +224,14 @@ async fn find_cve_chain_paths(store: &dyn Database) -> Vec<AttackPath> {
 }
 
 /// Critical assets directly attacked from external IPs.
+// Same dead-gate fix as `find_external_to_critical`: accept 'suspicious'
+// (what the sync actually writes for external attacker IPs), not only the
+// never-written 'malicious'.
 async fn find_direct_critical_exposure(store: &dyn Database) -> Vec<AttackPath> {
     let results = query(
         store,
         "MATCH (ip:IP)-[:OBSERVED]->(target:Asset {criticality: 'critical'}) \
-         WHERE ip.classification = 'malicious' \
+         WHERE ip.classification IN ['malicious', 'suspicious'] \
          RETURN ip.addr, target.id, target.hostname \
          LIMIT 10",
     )
