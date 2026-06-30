@@ -1,26 +1,34 @@
-//! Agent-side Sigma rule auto-update (support plan).
+//! Agent-side threat-intel pack auto-update (support plan).
 //!
 //! A FREE ThreatClaw agent that holds an active **support plan** pulls fresh,
-//! validated Sigma rules from the license worker straight into its own engine.
-//! It reuses the existing disk→DB→compile pipeline: fetched rules are written
-//! under the rules dir, then [`sigma_file_loader::sync_rules_from_disk`] +
-//! [`sigma_engine::reload`] pick them up.
+//! validated data packs from the license worker straight into its own engines.
+//! Historically this synced one pack — the Sigma rule set — reusing the existing
+//! disk→DB→compile pipeline. It is now a generic **multi-pack sync**: an
+//! orchestrator ([`run_update_cycle`]) walks a registry of [`PackInstaller`]s,
+//! and each installer knows how to land its pack (Sigma rules, and — as the
+//! hub-R2 chantier lands — KEV/MITRE/EPSS/IOC/grype-db). One MANIFEST lists every
+//! pack with its own version; a pack is only downloaded when *its* version moved,
+//! and one pack failing never blocks the others.
 //!
-//! Off by default: without `TC_SUPPORT_KEY` the agent runs its bundled-at-
-//! release rules unchanged ([`RuleUpdateConfig::from_env`] returns `None`).
+//! Off by default: without `TC_SUPPORT_KEY` (or a dashboard-stored support key)
+//! the agent runs its bundled-at-release data unchanged
+//! ([`RuleUpdateConfig::from_env`] returns `None`).
 //!
 //! When configured, the intelligence loop spawns [`run_update_cycle`]
 //! periodically (every ~6h) so a supported agent keeps its detection set fresh
 //! between releases.
 
+use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const DEFAULT_WORKER_BASE: &str = "https://license.threatclaw.io";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
-// Where the last successfully-applied pack version is persisted, so the updater
-// skips a download when already current — across restarts too.
+// Where the Sigma pack's last successfully-applied version is persisted, so the
+// updater skips a download when already current — across restarts too. Kept on
+// the original namespace/key so an agent upgraded into the multi-pack world does
+// not forget it already runs the current Sigma pack (no spurious re-download).
 const VERSION_NS: &str = "_sigma_rules";
 const VERSION_KEY: &str = "managed_version";
 
@@ -105,13 +113,99 @@ impl RuleUpdateConfig {
     }
 }
 
-/// What a single update cycle did.
+/// One pack listed in the worker MANIFEST.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackEntry {
+    /// Pack name (matches `PackInstaller::pack_name`), e.g. `sigma-agent`.
+    pub name: String,
+    /// The pack's published version. Per-pack `version` if the manifest carries
+    /// one; otherwise the manifest's top-level `version` (today every pack is
+    /// built together under one version).
+    pub version: String,
+    /// Optional content hash for integrity verification of the downloaded pack.
+    pub sha256: Option<String>,
+}
+
+/// What a single pack did within one update cycle.
 #[derive(Debug, PartialEq, Eq)]
-pub enum UpdateOutcome {
-    /// Manifest version matched `last_version` — nothing fetched.
+pub enum PackOutcome {
+    /// Manifest version matched the last applied one — nothing fetched.
     UpToDate,
-    /// New rules fetched and applied.
-    Applied { version: String, rules: usize },
+    /// New pack fetched and applied.
+    Applied { version: String, items: usize },
+    /// No installer registered offered this pack name — or the manifest didn't
+    /// list a registered installer's pack.
+    Skipped,
+    /// This pack's download/verify/install failed; the running data is untouched
+    /// and the version is NOT persisted, so the next cycle retries it. Other
+    /// packs in the same cycle are unaffected.
+    Failed(String),
+}
+
+/// What an update cycle did, per registered pack.
+#[derive(Debug, PartialEq, Eq)]
+pub struct UpdateOutcome {
+    pub packs: Vec<(String, PackOutcome)>,
+}
+
+/// A consumer of one R2 pack: it knows the pack's name, where to download it,
+/// where its applied version is persisted, and how to land its bytes into the
+/// right place in the agent (rules dir, DB table, on-disk DB, …).
+#[async_trait]
+pub trait PackInstaller: Send + Sync {
+    /// The MANIFEST `pack` name this installer consumes.
+    fn pack_name(&self) -> &'static str;
+    /// Absolute worker URL to download this pack's bytes.
+    fn download_url(&self, cfg: &RuleUpdateConfig) -> String;
+    /// `(namespace, key)` under which this pack's applied version is persisted in
+    /// `settings`. Per-pack so independent cadences don't collide.
+    fn version_key(&self) -> (&'static str, String);
+    /// Land already-downloaded (and integrity-checked) pack bytes. Returns the
+    /// number of items applied (rules, IoC, techniques…). On `Err` the cycle
+    /// records [`PackOutcome::Failed`] and leaves the version unpersisted.
+    async fn install(
+        &self,
+        store: &dyn crate::db::Database,
+        cfg: &RuleUpdateConfig,
+        bytes: &[u8],
+    ) -> Result<usize, String>;
+}
+
+/// The Sigma rule pack — the original (and, for now, only) installer. Reuses the
+/// existing disk→DB→compile pipeline unchanged.
+pub struct SigmaInstaller;
+
+#[async_trait]
+impl PackInstaller for SigmaInstaller {
+    fn pack_name(&self) -> &'static str {
+        "sigma-agent"
+    }
+    fn download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        cfg.download_url()
+    }
+    fn version_key(&self) -> (&'static str, String) {
+        (VERSION_NS, VERSION_KEY.to_string())
+    }
+    async fn install(
+        &self,
+        store: &dyn crate::db::Database,
+        cfg: &RuleUpdateConfig,
+        bytes: &[u8],
+    ) -> Result<usize, String> {
+        // Extract into the managed subdir, then apply through the existing
+        // pipeline (disk → DB upsert → recompile).
+        let n = extract_rules_targz(bytes, &cfg.managed_dir())
+            .map_err(|e| format!("extract: {e}"))?;
+        crate::agent::sigma_file_loader::sync_rules_from_disk(store, &cfg.rules_dir).await;
+        crate::agent::sigma_engine::reload(store).await;
+        Ok(n)
+    }
+}
+
+/// The installers a normal agent runs. One entry today (Sigma); the hub-R2
+/// chantier appends KEV/MITRE/EPSS/IOC/grype-db here as each lands.
+pub fn default_installers() -> Vec<Box<dyn PackInstaller>> {
+    vec![Box::new(SigmaInstaller)]
 }
 
 /// Extract the `version` field from a `MANIFEST.json` body. Pure.
@@ -120,10 +214,56 @@ pub fn parse_manifest_version(body: &str) -> Option<String> {
     v.get("version")?.as_str().map(|s| s.to_string())
 }
 
-/// Extract a gzipped tar of rule files into `dest`, which is wiped and
-/// recreated first so removed-upstream files don't linger on disk. Returns the
-/// number of `*.yml` / `*.yaml` files written. The `tar` crate refuses entries
-/// that would escape `dest`, so a hostile archive can't path-traverse.
+/// Parse the `packs` array of a `MANIFEST.json` into [`PackEntry`]s. Pure.
+///
+/// A pack's version is its own `version` field when present, else the manifest's
+/// top-level `version` (today every pack is built under one global version, so
+/// the fallback is the normal path). A pack with neither a usable name nor any
+/// version is skipped. Returns `[]` on non-JSON or a manifest with no usable
+/// pack entries.
+pub fn parse_manifest_packs(body: &str) -> Vec<PackEntry> {
+    let v: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let top_version = v.get("version").and_then(|x| x.as_str()).map(str::to_string);
+    let mut out = Vec::new();
+    let Some(arr) = v.get("packs").and_then(|p| p.as_array()) else {
+        return out;
+    };
+    for p in arr {
+        let Some(name) = p.get("pack").and_then(|x| x.as_str()) else {
+            continue;
+        };
+        let version = p
+            .get("version")
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
+            .or_else(|| top_version.clone());
+        let Some(version) = version else {
+            continue;
+        };
+        let sha256 = p.get("sha256").and_then(|x| x.as_str()).map(str::to_string);
+        out.push(PackEntry {
+            name: name.to_string(),
+            version,
+            sha256,
+        });
+    }
+    out
+}
+
+/// Verify that `bytes` hashes to `expected_hex` (SHA-256, case-insensitive). Pure.
+pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    let got = format!("{:x}", Sha256::digest(bytes));
+    got.eq_ignore_ascii_case(expected_hex.trim())
+}
+
+/// Extract a gzipped tar of rule files into `dest`, whose CONTENTS are wiped
+/// first so removed-upstream files don't linger on disk. Returns the number of
+/// `*.yml` / `*.yaml` files written. The `tar` crate refuses entries that would
+/// escape `dest`, so a hostile archive can't path-traverse.
 pub fn extract_rules_targz(gz_bytes: &[u8], dest: &Path) -> std::io::Result<usize> {
     // Clear `dest`'s CONTENTS in place rather than removing and recreating the
     // directory itself. On the hardened image `dest` (/app/rules/_managed) is a
@@ -160,10 +300,12 @@ fn count_rule_files(dir: &Path) -> usize {
         let path = entry.path();
         if path.is_dir() {
             count += count_rule_files(&path);
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            if ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml") {
-                count += 1;
-            }
+        } else if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("yml") || ext.eq_ignore_ascii_case("yaml"))
+        {
+            count += 1;
         }
     }
     count
@@ -207,20 +349,32 @@ pub async fn check_support_key(key: &str) -> SupportKeyCheck {
     }
 }
 
-/// Run one update cycle: check the published version against the last applied
-/// one (persisted in a setting), and if it changed, download + extract the
-/// Sigma pack and refresh the engine. Network failures return `Err` and leave
-/// the running rules untouched.
+/// Run one update cycle with the default installer registry. See
+/// [`run_update_cycle_with`].
 pub async fn run_update_cycle(
     store: &dyn crate::db::Database,
     cfg: &RuleUpdateConfig,
+) -> Result<UpdateOutcome, String> {
+    run_update_cycle_with(store, cfg, &default_installers()).await
+}
+
+/// Run one update cycle over `installers`: fetch the shared MANIFEST, then for
+/// each registered installer, compare the published version against the last
+/// applied one (persisted per-pack) and on a change download, integrity-check
+/// and install that pack. A manifest-fetch failure dooms the whole cycle
+/// (`Err`); a single pack's failure is isolated to [`PackOutcome::Failed`] and
+/// never blocks the others.
+pub async fn run_update_cycle_with(
+    store: &dyn crate::db::Database,
+    cfg: &RuleUpdateConfig,
+    installers: &[Box<dyn PackInstaller>],
 ) -> Result<UpdateOutcome, String> {
     let client = reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .build()
         .map_err(|e| format!("http client: {e}"))?;
 
-    // 1. Manifest — cheap version check so we only download on a real change.
+    // 1. Manifest — shared across packs, so a failure dooms the cycle.
     let manifest = client
         .get(cfg.manifest_url())
         .bearer_auth(&cfg.support_key)
@@ -235,21 +389,62 @@ pub async fn run_update_cycle(
         .text()
         .await
         .map_err(|e| format!("manifest body: {e}"))?;
-    let version = parse_manifest_version(&manifest_body)
-        .ok_or_else(|| "manifest has no version".to_string())?;
-    let last_version = store
-        .get_setting(VERSION_NS, VERSION_KEY)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    if last_version.as_deref() == Some(version.as_str()) {
-        return Ok(UpdateOutcome::UpToDate);
+    let entries = parse_manifest_packs(&manifest_body);
+    if entries.is_empty() {
+        return Err("manifest lists no packs".to_string());
     }
 
-    // 2. Download the Sigma pack.
+    // 2. Each registered installer syncs its pack independently.
+    let mut results = Vec::new();
+    for installer in installers {
+        let name = installer.pack_name();
+        let Some(entry) = entries.iter().find(|e| e.name == name) else {
+            results.push((name.to_string(), PackOutcome::Skipped));
+            continue;
+        };
+        let (ns, key) = installer.version_key();
+        let last = store
+            .get_setting(ns, &key)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(|s| s.to_string()));
+        if last.as_deref() == Some(entry.version.as_str()) {
+            results.push((name.to_string(), PackOutcome::UpToDate));
+            continue;
+        }
+        match sync_one_pack(&client, store, cfg, installer.as_ref(), entry).await {
+            Ok(items) => {
+                // Remember the applied version so the next cycle no-ops until it
+                // changes. Only after a successful install.
+                let _ = store
+                    .set_setting(ns, &key, &serde_json::json!(entry.version))
+                    .await;
+                results.push((
+                    name.to_string(),
+                    PackOutcome::Applied {
+                        version: entry.version.clone(),
+                        items,
+                    },
+                ));
+            }
+            Err(e) => results.push((name.to_string(), PackOutcome::Failed(e))),
+        }
+    }
+
+    Ok(UpdateOutcome { packs: results })
+}
+
+/// Download one pack, verify its hash, and hand the bytes to its installer.
+async fn sync_one_pack(
+    client: &reqwest::Client,
+    store: &dyn crate::db::Database,
+    cfg: &RuleUpdateConfig,
+    installer: &dyn PackInstaller,
+    entry: &PackEntry,
+) -> Result<usize, String> {
     let dl = client
-        .get(cfg.download_url())
+        .get(installer.download_url(cfg))
         .bearer_auth(&cfg.support_key)
         .header("X-Install-Id", &cfg.install_id)
         .send()
@@ -259,21 +454,14 @@ pub async fn run_update_cycle(
         return Err(format!("pack http {}", dl.status()));
     }
     let bytes = dl.bytes().await.map_err(|e| format!("pack body: {e}"))?;
-
-    // 3. Extract into the managed subdir.
-    let n = extract_rules_targz(&bytes, &cfg.managed_dir())
-        .map_err(|e| format!("extract: {e}"))?;
-
-    // 4. Apply through the existing pipeline (disk → DB upsert → recompile).
-    crate::agent::sigma_file_loader::sync_rules_from_disk(store, &cfg.rules_dir).await;
-    crate::agent::sigma_engine::reload(store).await;
-
-    // Remember the applied version so the next cycle no-ops until it changes.
-    let _ = store
-        .set_setting(VERSION_NS, VERSION_KEY, &serde_json::json!(version))
-        .await;
-
-    Ok(UpdateOutcome::Applied { version, rules: n })
+    if entry
+        .sha256
+        .as_deref()
+        .is_some_and(|expected| !verify_sha256(&bytes, expected))
+    {
+        return Err(format!("sha256 mismatch for pack {}", entry.name));
+    }
+    installer.install(store, cfg, &bytes).await
 }
 
 #[cfg(test)]
@@ -305,6 +493,82 @@ mod tests {
         );
         assert_eq!(parse_manifest_version("not json"), None);
         assert_eq!(parse_manifest_version(r#"{"packs":[]}"#), None);
+    }
+
+    #[test]
+    fn parse_manifest_packs_uses_top_level_version_as_fallback() {
+        // The real worker manifest: one global `version`, packs without their
+        // own `version` field — every pack inherits the top-level one.
+        let body = r#"{
+          "version": "2099.09.09",
+          "packs": [
+            {"pack":"sigma","bytes":1,"sha256":"aa"},
+            {"pack":"sigma-agent","bytes":2,"sha256":"ff634ac0"},
+            {"pack":"yara","bytes":3}
+          ]
+        }"#;
+        let packs = parse_manifest_packs(body);
+        assert_eq!(packs.len(), 3);
+        let agent = packs.iter().find(|p| p.name == "sigma-agent").unwrap();
+        assert_eq!(agent.version, "2099.09.09");
+        assert_eq!(agent.sha256.as_deref(), Some("ff634ac0"));
+        // sha256 is optional
+        assert_eq!(packs.iter().find(|p| p.name == "yara").unwrap().sha256, None);
+    }
+
+    #[test]
+    fn parse_manifest_packs_prefers_per_pack_version() {
+        // Forward-compatible: when packs carry their own version (independent
+        // cadences), it wins over the global one.
+        let body = r#"{
+          "version": "2099.09.09",
+          "packs": [
+            {"pack":"sigma-agent","sha256":"aa"},
+            {"pack":"kev","version":"2026.06.30","sha256":"bb"}
+          ]
+        }"#;
+        let packs = parse_manifest_packs(body);
+        assert_eq!(packs.iter().find(|p| p.name == "sigma-agent").unwrap().version, "2099.09.09");
+        assert_eq!(packs.iter().find(|p| p.name == "kev").unwrap().version, "2026.06.30");
+    }
+
+    #[test]
+    fn parse_manifest_packs_empty_on_garbage_or_no_packs() {
+        assert!(parse_manifest_packs("not json").is_empty());
+        assert!(parse_manifest_packs(r#"{"version":"1"}"#).is_empty());
+        // pack entries with no name and no resolvable version are dropped
+        assert!(parse_manifest_packs(r#"{"packs":[{"bytes":1}]}"#).is_empty());
+    }
+
+    #[test]
+    fn verify_sha256_matches_case_insensitively() {
+        // sha256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        let empty = b"";
+        assert!(verify_sha256(
+            empty,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        ));
+        assert!(verify_sha256(
+            empty,
+            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+        ));
+        assert!(!verify_sha256(empty, "deadbeef"));
+    }
+
+    #[test]
+    fn default_registry_has_sigma_only() {
+        let reg = default_installers();
+        assert_eq!(reg.len(), 1);
+        assert_eq!(reg[0].pack_name(), "sigma-agent");
+    }
+
+    #[test]
+    fn sigma_installer_keeps_legacy_version_key() {
+        // The Sigma pack must keep persisting under the original namespace/key so
+        // an upgraded agent doesn't re-download a pack it already has.
+        let (ns, key) = SigmaInstaller.version_key();
+        assert_eq!(ns, "_sigma_rules");
+        assert_eq!(key, "managed_version");
     }
 
     #[test]
@@ -369,6 +633,8 @@ mod tests {
             cfg.download_url(),
             "https://license.threatclaw.io/api/agent/rules/download"
         );
+        // the Sigma installer downloads from the legacy rules endpoint
+        assert_eq!(SigmaInstaller.download_url(&cfg), cfg.download_url());
         assert_eq!(cfg.managed_dir(), PathBuf::from("/app/rules/_managed"));
     }
 }
