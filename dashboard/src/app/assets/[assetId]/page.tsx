@@ -91,6 +91,23 @@ interface FullPayload {
     last_seen?: string | null;
     action_hint?: string | null;
   }>;
+  /**
+   * Prioritised exposure score (Grype × KEV × EPSS × criticality × network
+   * exposure), computed by the daily vuln scan. Null until first scan.
+   */
+  exposure?: {
+    score: number;
+    severity: string;
+    breakdown: string[];
+    max_cvss: number | null;
+    in_kev: boolean;
+    epss_max: number | null;
+    exposed: boolean;
+    top_cve: string | null;
+    top_fix: string | null;
+    top_software: string | null;
+    computed_at: string;
+  } | null;
 }
 
 type SectionId =
@@ -352,6 +369,40 @@ export default function AssetDetailPage() {
             </button>
           </div>
         </div>
+
+        {/* Exposure banner — prioritised vuln exposure (Grype × KEV × EPSS) */}
+        {data.exposure && data.exposure.score > 0 && (() => {
+          const ex = data.exposure!;
+          const sevColor =
+            ex.severity === "CRITICAL" ? "#e84040"
+            : ex.severity === "HIGH" ? "#d07020"
+            : ex.severity === "MEDIUM" ? "var(--tc-amber)"
+            : "var(--tc-blue)";
+          const fr = locale === "fr";
+          const action = ex.top_fix
+            ? (fr ? `Mettre à jour ${ex.top_software ?? "le composant"} en ${ex.top_fix}` : `Update ${ex.top_software ?? "the component"} to ${ex.top_fix}`)
+            : (fr ? `Corriger ${ex.top_software ?? "le composant vulnérable"}` : `Fix ${ex.top_software ?? "the vulnerable component"}`);
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", margin: "0 0 14px", borderRadius: 10, background: `${sevColor}12`, border: `1px solid ${sevColor}40` }}>
+              <div style={{ flex: "0 0 auto", display: "grid", placeItems: "center", width: 46, height: 46, borderRadius: 10, background: `${sevColor}1e`, color: sevColor, fontWeight: 700, fontSize: 16 }}>
+                {ex.score}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: sevColor, letterSpacing: 0.3 }}>
+                  {fr ? "EXPOSITION" : "EXPOSURE"} · {ex.severity}
+                  {ex.in_kev && <span style={{ marginLeft: 8, color: "#e84040" }}>• {fr ? "exploité activement" : "actively exploited"}</span>}
+                  {ex.exposed && <span style={{ marginLeft: 8, color: "var(--tc-amber)" }}>• {fr ? "exposé Internet" : "internet-facing"}</span>}
+                </div>
+                <div style={{ fontSize: 13.5, color: "var(--tc-text)", marginTop: 3 }}>
+                  {action}{ex.top_cve ? ` — ${ex.top_cve}` : ""}
+                </div>
+              </div>
+              <button onClick={() => router.push("/actions")} className="ad-edit-btn" style={{ flex: "0 0 auto" }}>
+                {fr ? "Actions prioritaires" : "Priority actions"}
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Layout: sidebar + content */}
         <div className="ad-grid">

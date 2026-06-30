@@ -42,6 +42,7 @@ import {
   Lock,
   Network,
   Database,
+  ListChecks,
 } from "lucide-react";
 
 export type SubNavItem = {
@@ -86,8 +87,16 @@ export const SECTIONS: Record<SectionKey, Section> = {
   incidents: {
     key: "incidents",
     label: () => "Incidents",
-    matches: ["/incidents", "/enquetes", "/archives", "/findings", "/alerts", "/alertes"],
+    matches: ["/incidents", "/enquetes", "/archives", "/findings", "/actions", "/alerts", "/alertes"],
     items: [
+      {
+        href: "/actions",
+        labelFr: "Actions prioritaires",
+        labelEn: "Priority actions",
+        icon: ListChecks,
+        tooltipFr: "La to-do ordonnée du RSSI : les assets les plus exposés à corriger en premier (vulnérabilité × exploité × exposition).",
+        tooltipEn: "The RSSI's ordered to-do: the most exposed assets to fix first (vulnerability × exploited × exposure).",
+      },
       {
         href: "/incidents",
         labelFr: "Incidents",

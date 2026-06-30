@@ -111,6 +111,50 @@ export async function fetchFindingsCounts(): Promise<CountEntry[]> {
   return res.counts;
 }
 
+/// One row of the "Actions prioritaires" remediation to-do list.
+export interface PriorityAction {
+  asset_id: string;
+  asset_name: string;
+  score: number;
+  severity: string;
+  action: string;
+  summary: string;
+  top_cve: string | null;
+  top_fix: string | null;
+  top_software: string | null;
+  in_kev: boolean;
+  exposed: boolean;
+  breakdown: string[];
+}
+
+/// Per-asset exposure score block (Grype × KEV × EPSS × criticality × exposure),
+/// as returned in the asset-page payload (`/assets/:id/full` → `exposure`).
+export interface AssetExposure {
+  asset_id: string;
+  score: number;
+  severity: string;
+  breakdown: string[];
+  max_cvss: number | null;
+  in_kev: boolean;
+  epss_max: number | null;
+  exposed: boolean;
+  top_cve: string | null;
+  top_fix: string | null;
+  top_software: string | null;
+  computed_at: string;
+}
+
+export async function fetchPriorityActions(params?: {
+  min_score?: number;
+  limit?: number;
+}): Promise<{ actions: PriorityAction[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params?.min_score != null) qs.set("min_score", String(params.min_score));
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const q = qs.toString();
+  return tcFetch(`/priority-actions${q ? `?${q}` : ""}`);
+}
+
 export async function updateFindingStatus(
   id: number,
   status: string,
