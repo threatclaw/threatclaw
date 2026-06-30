@@ -253,6 +253,34 @@ export default function LicensePage() {
     setBusy(null);
   };
 
+  // Community (free) channel: pull the monthly community Sigma snapshot now,
+  // without a premium key. Gated `rules:edit` server-side + UI-gated below.
+  const updateCommunityRules = async () => {
+    setError(null);
+    setInfo(null);
+    setBusy("community");
+    try {
+      const res = await fetch("/api/tc/rules/community-update", { method: "POST" });
+      if (!res.ok) {
+        setError((await res.text()) || (fr ? "Mise à jour impossible" : "Update failed"));
+      } else {
+        const d = await res.json().catch(() => null);
+        setInfo(
+          d?.status === "applied"
+            ? fr
+              ? `Règles mises à jour — ${d.rules} règles (v${d.version}).`
+              : `Rules updated — ${d.rules} rules (v${d.version}).`
+            : fr
+              ? "Règles déjà à jour."
+              : "Rules already up to date.",
+        );
+      }
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    }
+    setBusy(null);
+  };
+
   const heartbeat = async (license_key?: string) => {
     setError(null);
     setInfo(null);
@@ -692,6 +720,27 @@ export default function LicensePage() {
               primary
             />
           </div>
+        </section>
+      )}
+
+      {/* ── Community (free) rule update ── */}
+      {perms.includes("rules:edit") && (
+        <section style={cardStyle()}>
+          <h2 style={sectionTitle()}>
+            <RefreshCw size={14} /> {fr ? "Mise à jour des règles (gratuit)" : "Rule update (free)"}
+          </h2>
+          <p style={{ fontSize: "13px", color: "var(--tc-muted)", margin: "4px 0 8px" }}>
+            {fr
+              ? "Récupère le pack communautaire de règles (rafraîchi chaque mois). Le Premium les synchronise en continu, automatiquement."
+              : "Pull the community rule pack (refreshed monthly). Premium syncs them continuously and automatically."}
+          </p>
+          <ActionButton
+            onClick={updateCommunityRules}
+            busy={busy === "community"}
+            disabled={false}
+            icon={<RefreshCw size={12} />}
+            label={fr ? "Mettre à jour les règles" : "Update rules"}
+          />
         </section>
       )}
 

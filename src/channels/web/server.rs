@@ -500,6 +500,12 @@ pub async fn start_server(
             post(super::handlers::licensing_api::premium_activate_handler),
         )
         .route(
+            // Community (free) channel: trigger a one-shot rule pull. Domain
+            // `rules` + POST → gated `rules:edit` by route_permission middleware.
+            "/api/tc/rules/community-update",
+            post(super::handlers::licensing_api::community_rules_update_handler),
+        )
+        .route(
             "/api/tc/licensing/trial/start",
             post(super::handlers::licensing_api::trial_start_handler),
         )

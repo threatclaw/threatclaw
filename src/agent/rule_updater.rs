@@ -31,6 +31,9 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 // not forget it already runs the current Sigma pack (no spurious re-download).
 const VERSION_NS: &str = "_sigma_rules";
 const VERSION_KEY: &str = "managed_version";
+// Community channel applies a separate (monthly) snapshot, tracked apart from the
+// premium `managed_version` so the two channels never clobber each other's gate.
+const COMMUNITY_VERSION_KEY: &str = "community_version";
 
 // Support key persisted via the dashboard (premium-key activation) rather than
 // the TC_SUPPORT_KEY env var. The env var wins when both are present.
@@ -110,6 +113,22 @@ impl RuleUpdateConfig {
     /// wholesale without disturbing the agent's bundled rules.
     pub fn managed_dir(&self) -> PathBuf {
         self.rules_dir.join("_managed")
+    }
+
+    /// Build a keyless config for the COMMUNITY channel (free agents). The
+    /// community endpoints are public, so no support key / install id is used —
+    /// only the worker base and rules dir matter (for install).
+    pub fn for_community() -> Self {
+        let mut cfg = Self::with_key(String::new());
+        cfg.install_id = String::new();
+        cfg
+    }
+
+    fn community_manifest_url(&self) -> String {
+        format!("{}/api/community/rules/manifest", self.worker_base)
+    }
+    fn community_download_url(&self) -> String {
+        format!("{}/api/community/rules/download", self.worker_base)
     }
 }
 
@@ -455,6 +474,77 @@ pub async fn check_support_key(key: &str) -> SupportKeyCheck {
         Ok(r) => SupportKeyCheck::Rejected(format!("worker http {}", r.status())),
         Err(e) => SupportKeyCheck::Rejected(format!("serveur de licence injoignable: {e}")),
     }
+}
+
+/// One-shot COMMUNITY rule update (free agents): pull the keyless monthly
+/// community Sigma snapshot and install it if its published version moved. No
+/// support key, no install-id seat — this is the free channel. Triggered
+/// on-demand (the dashboard "Update rules" button), not the premium ~6h loop.
+pub async fn run_community_update(
+    store: &dyn crate::db::Database,
+) -> Result<PackOutcome, String> {
+    let cfg = RuleUpdateConfig::for_community();
+    let client = reqwest::Client::builder()
+        .timeout(HTTP_TIMEOUT)
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+
+    // 1. Community manifest (keyless) → version + integrity hash.
+    let manifest = client
+        .get(cfg.community_manifest_url())
+        .send()
+        .await
+        .map_err(|e| format!("manifest fetch: {e}"))?;
+    if !manifest.status().is_success() {
+        return Err(format!("manifest http {}", manifest.status()));
+    }
+    let body = manifest
+        .text()
+        .await
+        .map_err(|e| format!("manifest body: {e}"))?;
+    let version = parse_manifest_version(&body)
+        .ok_or_else(|| "community manifest has no version".to_string())?;
+    let expected_sha = parse_manifest_packs(&body)
+        .into_iter()
+        .find(|e| e.name == "sigma-agent")
+        .and_then(|e| e.sha256);
+
+    // 2. Skip when already current (separate gate from the premium channel).
+    let last = store
+        .get_setting(VERSION_NS, COMMUNITY_VERSION_KEY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string));
+    if last.as_deref() == Some(version.as_str()) {
+        return Ok(PackOutcome::UpToDate);
+    }
+
+    // 3. Download (keyless) + integrity check.
+    let resp = client
+        .get(cfg.community_download_url())
+        .send()
+        .await
+        .map_err(|e| format!("pack fetch: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("pack http {}", resp.status()));
+    }
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("pack body: {e}"))?;
+    if let Some(sha) = expected_sha.as_deref() {
+        if !verify_sha256(&bytes, sha) {
+            return Err("community pack sha256 mismatch".to_string());
+        }
+    }
+
+    // 4. Install via the Sigma installer (extract → sync → reload), then gate.
+    let items = SigmaInstaller.install(store, &cfg, &bytes).await?;
+    let _ = store
+        .set_setting(VERSION_NS, COMMUNITY_VERSION_KEY, &serde_json::json!(version))
+        .await;
+    Ok(PackOutcome::Applied { version, items })
 }
 
 /// Run one update cycle with the default installer registry. See
