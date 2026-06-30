@@ -47,6 +47,20 @@ pub async fn sync_kev(store: &dyn crate::db::Database) -> Result<usize, String> 
         .as_array()
         .ok_or("No vulnerabilities array")?;
 
+    let count = load_kev_vulnerabilities(store, vulns).await?;
+    tracing::info!("CISA KEV: Synced {count} entries");
+    Ok(count)
+}
+
+/// Write a list of CISA KEV `vulnerabilities` entries into the store: the
+/// per-CVE settings cache (`_kev`), the first-observation metric
+/// (`record_kev_observation`), and the sync meta. Shared by the live
+/// [`sync_kev`] and the R2 `kev` pack installer ([`load_kev_from_pack`]) so both
+/// paths land identical data. Returns the number of entries written.
+pub async fn load_kev_vulnerabilities(
+    store: &dyn crate::db::Database,
+    vulns: &[serde_json::Value],
+) -> Result<usize, String> {
     let mut count = 0;
     for vuln in vulns {
         let cve_id = vuln["cveID"].as_str().unwrap_or("").to_string();
@@ -89,8 +103,44 @@ pub async fn sync_kev(store: &dyn crate::db::Database) -> Result<usize, String> 
         )
         .await;
 
-    tracing::info!("CISA KEV: Synced {count} entries");
     Ok(count)
+}
+
+/// Parse a `kev` R2 pack into the CISA `vulnerabilities` entries. The pack is the
+/// CISA `known_exploited_vulnerabilities.json`, optionally gzip-compressed (the
+/// builder gzips it; raw JSON is also accepted). Pure — no store writes.
+pub fn parse_kev_pack(bytes: &[u8]) -> Result<Vec<serde_json::Value>, String> {
+    let json_bytes = maybe_gunzip(bytes)?;
+    let data: serde_json::Value =
+        serde_json::from_slice(&json_bytes).map_err(|e| format!("KEV pack JSON: {e}"))?;
+    let vulns = data["vulnerabilities"]
+        .as_array()
+        .ok_or("KEV pack: no vulnerabilities array")?;
+    Ok(vulns.clone())
+}
+
+/// Load a `kev` R2 pack into the same store destinations as a live sync — used by
+/// the multi-pack updater so a premium agent gets KEV from R2 instead of CISA.
+pub async fn load_kev_from_pack(
+    store: &dyn crate::db::Database,
+    bytes: &[u8],
+) -> Result<usize, String> {
+    let vulns = parse_kev_pack(bytes)?;
+    load_kev_vulnerabilities(store, &vulns).await
+}
+
+/// Gunzip `bytes` when they carry the gzip magic (`1f 8b`); otherwise return
+/// them as-is. Lets a pack be served compressed or raw.
+fn maybe_gunzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    if bytes.len() >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b {
+        use std::io::Read;
+        let mut dec = flate2::read::GzDecoder::new(bytes);
+        let mut out = Vec::new();
+        dec.read_to_end(&mut out).map_err(|e| format!("KEV pack gunzip: {e}"))?;
+        Ok(out)
+    } else {
+        Ok(bytes.to_vec())
+    }
 }
 
 /// Check if a CVE is in the KEV (actively exploited).
@@ -125,5 +175,44 @@ mod tests {
         assert!(parse_kev_date("2025/03/14").is_none());
         assert!(parse_kev_date("").is_none());
         assert!(parse_kev_date("bad").is_none());
+    }
+
+    const SAMPLE: &str = r#"{"title":"CISA KEV","vulnerabilities":[
+        {"cveID":"CVE-2021-44228","vendorProject":"Apache","product":"Log4j",
+         "vulnerabilityName":"Log4Shell","dateAdded":"2021-12-10","dueDate":"2021-12-24",
+         "requiredAction":"Patch"},
+        {"cveID":"CVE-2023-0001","vendorProject":"X","product":"Y",
+         "vulnerabilityName":"Z","dateAdded":"2023-01-01","dueDate":"2023-01-15",
+         "requiredAction":"Update"}
+    ]}"#;
+
+    fn gzip(s: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(s).unwrap();
+        e.finish().unwrap()
+    }
+
+    #[test]
+    fn parse_kev_pack_reads_raw_json() {
+        let vulns = parse_kev_pack(SAMPLE.as_bytes()).unwrap();
+        assert_eq!(vulns.len(), 2);
+        assert_eq!(vulns[0]["cveID"], "CVE-2021-44228");
+    }
+
+    #[test]
+    fn parse_kev_pack_reads_gzipped_json() {
+        // The builder gzips the CISA feed; the installer must transparently gunzip.
+        let gz = gzip(SAMPLE.as_bytes());
+        assert_eq!(&gz[0..2], &[0x1f, 0x8b], "fixture must carry gzip magic");
+        let vulns = parse_kev_pack(&gz).unwrap();
+        assert_eq!(vulns.len(), 2);
+        assert_eq!(vulns[1]["cveID"], "CVE-2023-0001");
+    }
+
+    #[test]
+    fn parse_kev_pack_rejects_garbage_and_missing_array() {
+        assert!(parse_kev_pack(b"not json").is_err());
+        assert!(parse_kev_pack(br#"{"title":"x"}"#).is_err());
     }
 }

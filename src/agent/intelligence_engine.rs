@@ -3502,8 +3502,14 @@ pub fn spawn_intelligence_ticker(
 
         // ── Initial sync of enrichment sources at startup ──
         tracing::info!("INTELLIGENCE: Initial enrichment sync...");
-        if let Err(e) = crate::enrichment::cisa_kev::sync_kev(store.as_ref()).await {
-            tracing::warn!("INTELLIGENCE: KEV sync failed: {e}");
+        // Defer to the R2 'kev' pack once it owns this feed (premium): the
+        // multi-pack updater keeps KEV fresh, so skip the redundant direct CISA
+        // fetch. Until the pack is applied (free agents, or before first sync)
+        // this runs as before.
+        if !crate::agent::rule_updater::pack_is_managed(store.as_ref(), "kev").await {
+            if let Err(e) = crate::enrichment::cisa_kev::sync_kev(store.as_ref()).await {
+                tracing::warn!("INTELLIGENCE: KEV sync failed: {e}");
+            }
         }
         // MITRE and CERT-FR are bigger — sync in background
         let store_sync = store.clone();
@@ -3576,7 +3582,13 @@ pub fn spawn_intelligence_ticker(
                 tracing::info!("INTELLIGENCE: Daily enrichment re-sync");
                 let store_resync = store.clone();
                 tokio::spawn(async move {
-                    let _ = crate::enrichment::cisa_kev::sync_kev(store_resync.as_ref()).await;
+                    // Skip the direct CISA sync once the R2 'kev' pack owns it.
+                    if !crate::agent::rule_updater::pack_is_managed(store_resync.as_ref(), "kev")
+                        .await
+                    {
+                        let _ =
+                            crate::enrichment::cisa_kev::sync_kev(store_resync.as_ref()).await;
+                    }
                     let _ =
                         crate::enrichment::certfr::sync_certfr_alerts(store_resync.as_ref()).await;
                     let _ = crate::enrichment::openphish::sync_feed(store_resync.as_ref()).await;

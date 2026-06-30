@@ -202,10 +202,57 @@ impl PackInstaller for SigmaInstaller {
     }
 }
 
-/// The installers a normal agent runs. One entry today (Sigma); the hub-R2
-/// chantier appends KEV/MITRE/EPSS/IOC/grype-db here as each lands.
+/// The CISA KEV pack — a JSON dump of the Known Exploited Vulnerabilities feed,
+/// landed into the same store the live CISA sync uses. Reuses
+/// [`crate::enrichment::cisa_kev::load_kev_from_pack`] so R2 and direct-sync
+/// produce identical data.
+pub struct KevInstaller;
+
+#[async_trait]
+impl PackInstaller for KevInstaller {
+    fn pack_name(&self) -> &'static str {
+        "kev"
+    }
+    fn download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        format!("{}/api/agent/packs/kev/download", cfg.worker_base)
+    }
+    fn version_key(&self) -> (&'static str, String) {
+        ("_packs", "kev_version".to_string())
+    }
+    async fn install(
+        &self,
+        store: &dyn crate::db::Database,
+        _cfg: &RuleUpdateConfig,
+        bytes: &[u8],
+    ) -> Result<usize, String> {
+        crate::enrichment::cisa_kev::load_kev_from_pack(store, bytes).await
+    }
+}
+
+/// The installers a normal agent runs. The hub-R2 chantier appends
+/// MITRE/EPSS/IOC/grype-db here as each lands. An installer whose pack the worker
+/// MANIFEST doesn't list yet is simply [`PackOutcome::Skipped`] every cycle —
+/// harmless until the premium side ships that pack.
 pub fn default_installers() -> Vec<Box<dyn PackInstaller>> {
-    vec![Box::new(SigmaInstaller)]
+    vec![Box::new(SigmaInstaller), Box::new(KevInstaller)]
+}
+
+/// True once PackSync has applied `pack` at least once (its per-pack version is
+/// persisted) — i.e. the R2 pack now owns this data and the direct upstream sync
+/// of the same feed should defer to it (mutual exclusion, spec §5). Returns
+/// false for an unknown pack or one never applied (e.g. free agents), so the
+/// direct sync keeps running until the pack actually takes over.
+pub async fn pack_is_managed(store: &dyn crate::db::Database, pack: &str) -> bool {
+    let Some(installer) = default_installers().into_iter().find(|i| i.pack_name() == pack) else {
+        return false;
+    };
+    let (ns, key) = installer.version_key();
+    store
+        .get_setting(ns, &key)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 /// Extract the `version` field from a `MANIFEST.json` body. Pure.
@@ -556,10 +603,26 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_has_sigma_only() {
-        let reg = default_installers();
-        assert_eq!(reg.len(), 1);
-        assert_eq!(reg[0].pack_name(), "sigma-agent");
+    fn default_registry_lists_sigma_and_kev() {
+        let names: Vec<_> = default_installers().iter().map(|i| i.pack_name()).collect();
+        assert!(names.contains(&"sigma-agent"));
+        assert!(names.contains(&"kev"));
+    }
+
+    #[test]
+    fn kev_installer_url_and_version_key() {
+        let cfg = RuleUpdateConfig {
+            worker_base: "https://license.threatclaw.io".to_string(),
+            support_key: "TC-XXXX".to_string(),
+            rules_dir: PathBuf::from("/app/rules"),
+            install_id: "00000000-0000-4000-8000-000000000000".to_string(),
+        };
+        assert_eq!(
+            KevInstaller.download_url(&cfg),
+            "https://license.threatclaw.io/api/agent/packs/kev/download"
+        );
+        let (ns, key) = KevInstaller.version_key();
+        assert_eq!((ns, key.as_str()), ("_packs", "kev_version"));
     }
 
     #[test]
