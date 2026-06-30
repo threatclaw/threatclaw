@@ -332,15 +332,34 @@ pub async fn community_rules_update_handler(
         return Err((StatusCode::SERVICE_UNAVAILABLE, "store unavailable".to_string()));
     };
     match crate::agent::rule_updater::run_community_update(store.as_ref()).await {
-        Ok(crate::agent::rule_updater::PackOutcome::Applied { version, items }) => {
+        Ok(outcome) => {
+            use crate::agent::rule_updater::PackOutcome;
+            let packs: Vec<serde_json::Value> = outcome
+                .packs
+                .iter()
+                .map(|(name, o)| {
+                    let status = match o {
+                        PackOutcome::Applied { .. } => "applied",
+                        PackOutcome::UpToDate => "up_to_date",
+                        PackOutcome::Skipped => "skipped",
+                        PackOutcome::Failed(_) => "failed",
+                    };
+                    let items = match o {
+                        PackOutcome::Applied { items, .. } => Some(*items),
+                        _ => None,
+                    };
+                    serde_json::json!({ "pack": name, "status": status, "items": items })
+                })
+                .collect();
+            let applied = outcome
+                .packs
+                .iter()
+                .filter(|(_, o)| matches!(o, PackOutcome::Applied { .. }))
+                .count();
             Ok(Json(serde_json::json!({
-                "ok": true, "status": "applied", "version": version, "rules": items
+                "ok": true, "applied": applied, "packs": packs
             })))
         }
-        Ok(crate::agent::rule_updater::PackOutcome::UpToDate) => {
-            Ok(Json(serde_json::json!({ "ok": true, "status": "up_to_date" })))
-        }
-        Ok(other) => Ok(Json(serde_json::json!({ "ok": true, "status": format!("{other:?}") }))),
         Err(e) => Err((StatusCode::BAD_GATEWAY, e)),
     }
 }

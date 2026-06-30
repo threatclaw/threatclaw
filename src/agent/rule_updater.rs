@@ -188,6 +188,23 @@ pub trait PackInstaller: Send + Sync {
         cfg: &RuleUpdateConfig,
         bytes: &[u8],
     ) -> Result<usize, String>;
+
+    /// Keyless COMMUNITY download URL (the free monthly-snapshot channel).
+    /// Default = the generic community packs route; a pack that ships on a
+    /// legacy community endpoint overrides this.
+    fn community_download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        format!(
+            "{}/api/community/packs/{}/download",
+            cfg.worker_base,
+            self.pack_name()
+        )
+    }
+    /// Community gate key — a separate namespace from the premium [`version_key`]
+    /// so the monthly community channel and the ~6h premium channel never clobber
+    /// each other's "already current" tracking.
+    fn community_version_key(&self) -> (&'static str, String) {
+        ("_packs", format!("{}_community_version", self.pack_name()))
+    }
 }
 
 /// The Sigma rule pack — the original (and, for now, only) installer. Reuses the
@@ -204,6 +221,15 @@ impl PackInstaller for SigmaInstaller {
     }
     fn version_key(&self) -> (&'static str, String) {
         (VERSION_NS, VERSION_KEY.to_string())
+    }
+    // Sigma keeps the original community endpoint + gate key (deployed before the
+    // generic packs route existed) so an agent already on the community Sigma pack
+    // is byte-for-byte unaffected.
+    fn community_download_url(&self, cfg: &RuleUpdateConfig) -> String {
+        cfg.community_download_url()
+    }
+    fn community_version_key(&self) -> (&'static str, String) {
+        (VERSION_NS, COMMUNITY_VERSION_KEY.to_string())
     }
     async fn install(
         &self,
@@ -482,14 +508,26 @@ pub async fn check_support_key(key: &str) -> SupportKeyCheck {
 /// on-demand (the dashboard "Update rules" button), not the premium ~6h loop.
 pub async fn run_community_update(
     store: &dyn crate::db::Database,
-) -> Result<PackOutcome, String> {
+) -> Result<UpdateOutcome, String> {
+    run_community_update_with(store, &default_installers()).await
+}
+
+/// Run one COMMUNITY update over `installers`: keyless, against the monthly
+/// `community/` snapshot. Same per-pack isolation as the premium cycle, but no
+/// support key / seat, separate (community) gate keys, and each pack pulled from
+/// its [`PackInstaller::community_download_url`]. The free baseline channel — it
+/// installs the same Sigma rules + data packs (kev/mitre/epss/…), just monthly.
+pub async fn run_community_update_with(
+    store: &dyn crate::db::Database,
+    installers: &[Box<dyn PackInstaller>],
+) -> Result<UpdateOutcome, String> {
     let cfg = RuleUpdateConfig::for_community();
     let client = reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .build()
         .map_err(|e| format!("http client: {e}"))?;
 
-    // 1. Community manifest (keyless) → version + integrity hash.
+    // 1. Community manifest (keyless) — shared across packs.
     let manifest = client
         .get(cfg.community_manifest_url())
         .send()
@@ -502,50 +540,75 @@ pub async fn run_community_update(
         .text()
         .await
         .map_err(|e| format!("manifest body: {e}"))?;
-    let version = parse_manifest_version(&body)
-        .ok_or_else(|| "community manifest has no version".to_string())?;
-    let expected_sha = parse_manifest_packs(&body)
-        .into_iter()
-        .find(|e| e.name == "sigma-agent")
-        .and_then(|e| e.sha256);
-
-    // 2. Skip when already current (separate gate from the premium channel).
-    let last = store
-        .get_setting(VERSION_NS, COMMUNITY_VERSION_KEY)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_str().map(str::to_string));
-    if last.as_deref() == Some(version.as_str()) {
-        return Ok(PackOutcome::UpToDate);
+    let entries = parse_manifest_packs(&body);
+    if entries.is_empty() {
+        return Err("community manifest lists no packs".to_string());
     }
 
-    // 3. Download (keyless) + integrity check.
-    let resp = client
-        .get(cfg.community_download_url())
+    // 2. Each registered installer syncs its community pack independently.
+    let mut results = Vec::new();
+    for installer in installers {
+        let name = installer.pack_name();
+        let Some(entry) = entries.iter().find(|e| e.name == name) else {
+            results.push((name.to_string(), PackOutcome::Skipped));
+            continue;
+        };
+        let (ns, key) = installer.community_version_key();
+        let last = store
+            .get_setting(ns, &key)
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(|s| s.to_string()));
+        if last.as_deref() == Some(entry.version.as_str()) {
+            results.push((name.to_string(), PackOutcome::UpToDate));
+            continue;
+        }
+        match community_sync_one(&client, store, &cfg, installer.as_ref(), entry).await {
+            Ok(items) => {
+                let _ = store
+                    .set_setting(ns, &key, &serde_json::json!(entry.version))
+                    .await;
+                results.push((
+                    name.to_string(),
+                    PackOutcome::Applied {
+                        version: entry.version.clone(),
+                        items,
+                    },
+                ));
+            }
+            Err(e) => results.push((name.to_string(), PackOutcome::Failed(e))),
+        }
+    }
+
+    Ok(UpdateOutcome { packs: results })
+}
+
+/// Download one community pack (keyless), verify its hash, hand it to its installer.
+async fn community_sync_one(
+    client: &reqwest::Client,
+    store: &dyn crate::db::Database,
+    cfg: &RuleUpdateConfig,
+    installer: &dyn PackInstaller,
+    entry: &PackEntry,
+) -> Result<usize, String> {
+    let dl = client
+        .get(installer.community_download_url(cfg))
         .send()
         .await
         .map_err(|e| format!("pack fetch: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("pack http {}", resp.status()));
+    if !dl.status().is_success() {
+        return Err(format!("pack http {}", dl.status()));
     }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("pack body: {e}"))?;
-    if expected_sha
+    let bytes = dl.bytes().await.map_err(|e| format!("pack body: {e}"))?;
+    if entry
+        .sha256
         .as_deref()
         .is_some_and(|sha| !verify_sha256(&bytes, sha))
     {
-        return Err("community pack sha256 mismatch".to_string());
+        return Err(format!("community pack sha256 mismatch for {}", entry.name));
     }
-
-    // 4. Install via the Sigma installer (extract → sync → reload), then gate.
-    let items = SigmaInstaller.install(store, &cfg, &bytes).await?;
-    let _ = store
-        .set_setting(VERSION_NS, COMMUNITY_VERSION_KEY, &serde_json::json!(version))
-        .await;
-    Ok(PackOutcome::Applied { version, items })
+    installer.install(store, cfg, &bytes).await
 }
 
 /// Run one update cycle with the default installer registry. See
