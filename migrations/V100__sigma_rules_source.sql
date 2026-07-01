@@ -1,0 +1,13 @@
+-- Track where each Sigma rule came from so the file loader can reconcile
+-- (prune) rules that are no longer shipped, without wiping the pack on a
+-- failed pull.
+--
+--   bundle  — a rule file baked into the image (rules/, always present)
+--   managed — a rule file from the pulled R2 pack (rules/_managed/, may be
+--             absent if a pull failed)
+--
+-- Existing rows default to 'managed' on purpose: it is the value the reconcile
+-- guards (a managed rule is only pruned when the pack synced healthy), so an
+-- upgrade cannot accidentally delete a rule before the first fresh sync retags
+-- it correctly. The loader sets the real value on every sync.
+ALTER TABLE sigma_rules ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'managed';

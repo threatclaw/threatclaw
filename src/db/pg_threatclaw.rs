@@ -2336,6 +2336,7 @@ impl ThreatClawStore for PgBackend {
         rule_yaml: &str,
         detection_json: &serde_json::Value,
         disposition: Option<&str>,
+        source: &str,
     ) -> Result<(), DatabaseError> {
         let conn = self.pool().get().await.map_err(pool_err)?;
         let tags_vec: Vec<String> = tags.to_vec();
@@ -2353,11 +2354,11 @@ impl ThreatClawStore for PgBackend {
             "INSERT INTO sigma_rules \
                 (id, title, description, level, status, \
                  logsource_category, logsource_product, logsource_service, \
-                 tags, author, rule_yaml, detection_json, enabled, disposition) \
+                 tags, author, rule_yaml, detection_json, enabled, disposition, source) \
              VALUES ($1, $2, $3, $4, COALESCE($5, 'experimental'), \
                      $6, $7, $8, $9, $10, $11, $12, \
                      (COALESCE($5, 'experimental') NOT IN ('unsupported','deprecated')), \
-                     COALESCE($13, 'detect')) \
+                     COALESCE($13, 'detect'), $14) \
              ON CONFLICT (id) DO UPDATE SET \
                 title = EXCLUDED.title, \
                 description = EXCLUDED.description, \
@@ -2370,6 +2371,7 @@ impl ThreatClawStore for PgBackend {
                 author = EXCLUDED.author, \
                 rule_yaml = EXCLUDED.rule_yaml, \
                 detection_json = EXCLUDED.detection_json, \
+                source = EXCLUDED.source, \
                 updated_at = NOW()",
             &[
                 &id,
@@ -2385,11 +2387,36 @@ impl ThreatClawStore for PgBackend {
                 &rule_yaml,
                 detection_json,
                 &disposition,
+                &source,
             ],
         )
         .await
         .map_err(query_err)?;
         Ok(())
+    }
+
+    async fn reconcile_sigma_rules(
+        &self,
+        seen_ids: &[String],
+        prune_managed: bool,
+    ) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let ids: Vec<String> = seen_ids.to_vec();
+        // Delete rules absent from this sync. Bundle rules are always eligible
+        // (the bundle ships in the image, so a missing one is a real
+        // retirement). Managed rules are pruned only when `prune_managed` is
+        // true (the _managed pack synced healthy), so a failed pull that leaves
+        // `_managed` empty cannot wipe the pulled rule set.
+        let n = conn
+            .execute(
+                "DELETE FROM sigma_rules \
+                 WHERE id <> ALL($1) \
+                   AND (source = 'bundle' OR ($2 AND source = 'managed'))",
+                &[&ids, &prune_managed],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
     }
 
     async fn count_logs(&self, minutes_back: i64) -> Result<i64, DatabaseError> {

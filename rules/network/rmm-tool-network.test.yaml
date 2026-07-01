@@ -1,9 +1,0 @@
-rule: rmm-tool-network
-positive:
-  - description: AnyDesk relay endpoint
-    event:
-      server_name: 'relay-12345.net.anydesk.com'
-negative:
-  - description: Unrelated TLS SNI
-    event:
-      server_name: 'www.microsoft.com'

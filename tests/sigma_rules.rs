@@ -54,6 +54,13 @@ struct Case {
 }
 
 fn rules_dir() -> PathBuf {
+    // Override so an out-of-tree caller (e.g. the premium maison firing test)
+    // can point the real engine at a converted rule set + its fixtures.
+    if let Ok(dir) = std::env::var("TC_RULES_TEST_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
     Path::new(env!("CARGO_MANIFEST_DIR")).join("rules")
 }
 
