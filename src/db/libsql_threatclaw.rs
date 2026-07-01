@@ -253,7 +253,15 @@ impl ThreatClawStore for LibSqlBackend {
         _rule_yaml: &str,
         _detection_json: &serde_json::Value,
         _disposition: Option<&str>,
+        _source: &str,
     ) -> Result<(), DatabaseError> {
+        Err(not_supported())
+    }
+    async fn reconcile_sigma_rules(
+        &self,
+        _seen_ids: &[String],
+        _prune_managed: bool,
+    ) -> Result<u64, DatabaseError> {
         Err(not_supported())
     }
     async fn execute_cypher(&self, _: &str) -> Result<Vec<serde_json::Value>, DatabaseError> {

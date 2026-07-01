@@ -1351,7 +1351,23 @@ pub trait ThreatClawStore: Send + Sync {
         detection_json: &serde_json::Value,
         // Initial disposition applied ON INSERT only (None → DB default 'detect').
         disposition: Option<&str>,
+        // Where the file lives: "bundle" (baked into the image, always present)
+        // or "managed" (from the pulled R2 pack). Updated on every sync; drives
+        // reconcile_sigma_rules.
+        source: &str,
     ) -> Result<(), DatabaseError>;
+
+    /// Prune Sigma rules no longer present on disk. `seen_ids` is every rule id
+    /// seen during the sync just completed. `prune_managed` must be true only
+    /// when the `_managed` pack synced healthy — it guards against a failed pull
+    /// (empty `_managed`) wiping the pulled rules. Bundle rules are always
+    /// reconciled (the bundle ships in the image, so a missing one is a real
+    /// retirement). Returns the number of rows deleted.
+    async fn reconcile_sigma_rules(
+        &self,
+        seen_ids: &[String],
+        prune_managed: bool,
+    ) -> Result<u64, DatabaseError>;
 
     // Graph operations (Apache AGE Cypher queries)
     async fn execute_cypher(&self, cypher: &str) -> Result<Vec<serde_json::Value>, DatabaseError>;

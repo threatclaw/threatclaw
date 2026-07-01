@@ -72,9 +72,19 @@ struct LogSource {
 pub struct SyncReport {
     pub files_seen: usize,
     pub rules_upserted: usize,
+    pub rules_pruned: usize,
     pub parse_errors: Vec<(PathBuf, String)>,
     pub db_errors: Vec<(String, String)>,
 }
+
+/// Below this many total rule files, the `rules/` tree is treated as broken
+/// (empty or partial deploy) and NO reconcile runs — a bad sync must never be
+/// able to wipe the DB. The bundle alone ships well over this.
+const RECONCILE_MIN_FILES: usize = 100;
+/// Below this many `_managed` files the pulled pack is treated as unhealthy
+/// (failed or partial pull) and managed rules are NOT pruned, so a broken pull
+/// cannot delete the pulled rule set. A healthy pack ships thousands.
+const MANAGED_HEALTHY_MIN: usize = 100;
 
 /// Walk `rules_dir` recursively and upsert every rule file.
 pub async fn sync_rules_from_disk(store: &dyn Database, rules_dir: &Path) -> SyncReport {
@@ -86,6 +96,11 @@ pub async fn sync_rules_from_disk(store: &dyn Database, rules_dir: &Path) -> Syn
         );
         return report;
     }
+
+    // Every rule id seen this sync (for the reconcile) + how many came from the
+    // pulled `_managed` pack (to gate managed pruning).
+    let mut seen: Vec<String> = Vec::new();
+    let mut managed_seen = 0usize;
 
     let mut stack: Vec<PathBuf> = vec![rules_dir.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -116,16 +131,53 @@ pub async fn sync_rules_from_disk(store: &dyn Database, rules_dir: &Path) -> Syn
                 continue;
             }
             report.files_seen += 1;
-            if let Err(e) = sync_one_file(store, &path, &mut report).await {
-                report.parse_errors.push((path.clone(), e));
+            // A file under a `_managed/` component came from the pulled R2 pack;
+            // anything else is baked into the image bundle.
+            let is_managed = path.components().any(|c| c.as_os_str() == "_managed");
+            let source = if is_managed { "managed" } else { "bundle" };
+            match sync_one_file(store, &path, source, &mut report).await {
+                Ok(id) => {
+                    seen.push(id);
+                    if is_managed {
+                        managed_seen += 1;
+                    }
+                }
+                Err(e) => report.parse_errors.push((path.clone(), e)),
             }
         }
     }
 
+    // Reconcile (prune) rules that vanished from disk. Skipped entirely if the
+    // sync looks broken (too few files) so an empty/partial deploy can never
+    // wipe the DB. Managed rules are pruned only when the pulled pack synced
+    // healthy — a failed pull (empty `_managed`) leaves them untouched.
+    if report.files_seen >= RECONCILE_MIN_FILES {
+        let prune_managed = managed_seen >= MANAGED_HEALTHY_MIN;
+        match store.reconcile_sigma_rules(&seen, prune_managed).await {
+            Ok(n) => {
+                report.rules_pruned = n as usize;
+                tracing::info!(
+                    "SIGMA FILE LOADER: reconcile pruned {} stale rules (managed_seen={}, prune_managed={})",
+                    n,
+                    managed_seen,
+                    prune_managed
+                );
+            }
+            Err(e) => tracing::warn!("SIGMA FILE LOADER: reconcile failed: {}", e),
+        }
+    } else {
+        tracing::warn!(
+            "SIGMA FILE LOADER: only {} files seen (< {}), skipping reconcile to avoid wiping the DB on a broken sync",
+            report.files_seen,
+            RECONCILE_MIN_FILES
+        );
+    }
+
     tracing::info!(
-        "SIGMA FILE LOADER: synced {}/{} files ({} parse err, {} DB err)",
+        "SIGMA FILE LOADER: synced {}/{} files, pruned {} ({} parse err, {} DB err)",
         report.rules_upserted,
         report.files_seen,
+        report.rules_pruned,
         report.parse_errors.len(),
         report.db_errors.len()
     );
@@ -135,8 +187,9 @@ pub async fn sync_rules_from_disk(store: &dyn Database, rules_dir: &Path) -> Syn
 async fn sync_one_file(
     store: &dyn Database,
     path: &Path,
+    source: &str,
     report: &mut SyncReport,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
     let rule: RuleFile = serde_yaml_ng::from_str(&raw).map_err(|e| format!("yaml: {e}"))?;
 
@@ -160,13 +213,14 @@ async fn sync_one_file(
             &raw,
             &detection_json,
             rule.disposition.as_deref(),
+            source,
         )
         .await;
 
     match res {
         Ok(_) => {
             report.rules_upserted += 1;
-            Ok(())
+            Ok(rule.id)
         }
         Err(e) => {
             report.db_errors.push((rule.id.clone(), e.to_string()));
