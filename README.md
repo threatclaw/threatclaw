@@ -89,8 +89,8 @@ cargo build --release
 
 ## Features
 
-### Multi-level AI Architecture
-ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and private. Cloud escalation is optional, always anonymized.
+### Five-Level AI Architecture
+ThreatClaw runs a five-level LLM pipeline (conversation, triage & correlation, deep forensic, playbooks & reports, and optional cloud escalation) that keeps decisions local and private by default. Cloud escalation is opt-in and always anonymized.
 
 ### Core engine (Rust)
 - **Intelligence Engine** — Automated threat correlation and scoring
@@ -103,10 +103,24 @@ ThreatClaw uses a multi-level AI system that keeps 95% of decisions local and pr
 ### ClawSuite — Detection & Response
 - **ClawMatch** — Real-time IoC matching across millions of indicators
 - **ClawTrace** — Network threat detection (TLS fingerprints, C2 beacons, certificate anomalies)
-- **ClawMind** — Autonomous AI reasoning on confirmed threats
-- **ClawResponse** — Guarded incident response (block IP, disable account, create ticket) with HITL
+- **ClawMind** — Autonomous AI investigation driven by 98 built-in playbooks
+- **ClawResponse** — Guarded incident response (block IP, isolate host, disable/enable account, reset password, reset krbtgt, force MFA, kill process, collect artifacts, create ticket) — every action HITL-gated
 - **ClawShield** — Multi-layer protection preventing unauthorized remediation
 - **ClawVault** — Encrypted credential storage for all integrations
+
+### Detection Feed
+ThreatClaw ships with curated detection bases and keeps them current:
+
+| Base | Coverage |
+|---|---|
+| **Sigma** | 6,400+ behavioral detection rules |
+| **YARA** | 8,000+ file & malware rules |
+| **IOC** | 16,000+ C2 and malicious-IP indicators |
+| **MITRE ATT&CK** | 858 techniques mapped |
+| **CISA KEV** | 1,600+ actively exploited CVEs |
+| **EPSS** | exploitation-probability scores for ~345,000 CVEs |
+
+The free build refreshes from a monthly community snapshot; Premium keeps every base updated in real time inside your server.
 
 ### Endpoint Agents
 Lightweight read-only agents (Linux + Windows + macOS) that report OS, installed software, listening ports, users, scheduled tasks and SSH keys to ThreatClaw every 5 minutes. **No remediation, no daemon spawning** — pure inventory. The collected software is automatically cross-referenced against NVD, CISA KEV and EPSS to surface vulnerable packages without any extra setup.
@@ -129,6 +143,8 @@ curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- \
 - **Company Context** — Sector, business hours, geo scope adjust sensitivity
 
 ### Integrations
+
+**60+ integrations** across connectors, threat-intelligence enrichment and scanners.
 
 **Threat Intelligence (automatic, zero config):**
 CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, CrowdSec, AbuseIPDB, Shodan, VirusTotal, HIBP, OpenPhish, ThreatFox, URLhaus, MalwareBazaar, MISP, OTX, SSL Labs, Mozilla Observatory, and more.
@@ -156,26 +172,25 @@ Firewall block, account disable, ticket creation — all gated by ClawShield HIT
 - Skills marketplace (Connectors / Intelligence / Actions)
 - Live system logs
 
-### PDF Reports
-- NIS2 (Early Warning 24h, Intermediate 72h, Final, Article 21)
-- RGPD Article 33, ISO 27001, NIST SP 800-61r3
-- Executive & Technical reports, Audit trail
+### Reports
+15 report & document templates, including:
+- **NIS2** — Early Warning (24h), Intermediate (72h), Final, Article 21
+- **GDPR** Article 33 · **ISO 27001** incident · **NIST** SP 800-61 incident
+- **EU AI Act** · **ISO 42001** · **NIST AI RMF** · AI-governance whitepaper
+- Executive, Technical & monthly CISO reports · audit trail
 
 ## Pricing
 
-ThreatClaw is **open source under AGPL v3** and free to self-host for evaluation, lab, and small environments.
+ThreatClaw is **open source under AGPL v3** — the full product, every feature, **no asset limit**, self-hosted on your own infrastructure. Free for everyone.
 
-For production use, paid tiers cover larger asset counts, support, and the commercial license:
+Premium adds two things on top of the free product, and gates nothing else:
 
-| Tier | Billable assets | Commitment |
-|---|---|---|
-| **Free** | up to 50 | self-hosted, AGPL v3, community support |
-| **Starter** | up to 200 | monthly or annual |
-| **Pro** | up to 500 | monthly or annual |
-| **Business** | up to 1500 | monthly or annual |
-| **Enterprise** | unlimited / MSP | contact us |
+- **Detection bases kept up to date in real time** inside your server (see [Detection Feed](#detection-feed)). The free build refreshes from a monthly community snapshot; Premium keeps every base current continuously.
+- **Human support** from the team.
 
-HITL remediation (firewall block, account disable, ticket creation, …) is **included on every tier**. See [threatclaw.io/pricing](https://threatclaw.io/pricing) for current rates and the asset-counting rules.
+Premium is priced **per monitored asset** — about **€2/asset/month, degressive with volume** (the more assets you monitor, the lower the per-asset rate). See [threatclaw.io/pricing](https://threatclaw.io/pricing) for the live calculator and the asset-counting rules.
+
+The ML engine, investigation playbooks, DFIR, HITL remediation, compliance reports and every connector are **included free** — Premium never gates features.
 
 ## Architecture
 
