@@ -150,7 +150,7 @@ curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- \
 CISA KEV, EPSS, MITRE ATT&CK, CERT-FR, GreyNoise, CrowdSec, AbuseIPDB, Shodan, VirusTotal, HIBP, OpenPhish, ThreatFox, URLhaus, MalwareBazaar, MISP, OTX, SSL Labs, Mozilla Observatory, and more.
 
 **Connectors (plug your existing tools):**
-Active Directory/LDAP, pfSense/OPNsense, Fortinet, Proxmox, GLPI, Wazuh, Nmap, Zeek, Suricata, Pi-hole, UniFi, Cloudflare, and more.
+Active Directory/LDAP, Microsoft 365 / Entra ID, Microsoft Sentinel, pfSense/OPNsense, Fortinet, Stormshield, Proxmox, GLPI, Wazuh, Velociraptor, Nmap, Zeek, Suricata, Pi-hole, UniFi, Cloudflare, and more.
 
 **Endpoint inventory (push from the host):** ThreatClaw Endpoint Agent (Linux, Windows, macOS).
 
