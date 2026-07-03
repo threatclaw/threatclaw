@@ -28,7 +28,8 @@ from .features import extract_dns_features
 
 logger = logging.getLogger("ml.dga")
 
-MODEL_DIR = Path(os.environ.get("ML_MODEL_DIR", "/tmp/ml-models"))
+# Défaut hors /tmp (world-writable) — voir ING-C4 dans anomaly_detector.py.
+MODEL_DIR = Path(os.environ.get("ML_MODEL_DIR", "/models"))
 
 # 12-feature column order (must match training script)
 FEATURE_COLS = [

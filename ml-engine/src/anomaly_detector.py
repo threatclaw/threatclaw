@@ -15,7 +15,10 @@ from .features import extract_asset_features
 
 logger = logging.getLogger("ml.anomaly")
 
-MODEL_DIR = Path(os.environ.get("ML_MODEL_DIR", "/tmp/ml-models"))
+# Défaut hors /tmp (world-writable) — ING-C4 : un .pkl planté dans un dossier
+# inscriptible par tous serait chargé via pickle.load → RCE. /models est fourni
+# par l'image (root) et l'env ML_MODEL_DIR l'override en prod.
+MODEL_DIR = Path(os.environ.get("ML_MODEL_DIR", "/models"))
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # Feature columns used by the model (order matters)

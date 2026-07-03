@@ -87,7 +87,15 @@ def get_logs(hours_back=24, per_host=2000, max_total=200000):
 
 
 def get_assets():
-    """Get all active assets."""
+    """Get active, DECLARED assets only.
+
+    Doctrine inventaire v2 (declared/quarantine) : le ML ne score ni n'entraîne
+    sur des assets en quarantaine (observés, non validés). Sans ce filtre, un
+    flood syslog crée des milliers de faux assets qui polluent le scoring et
+    élargissent la baseline (finding ING-H3). La confiance = `declared` :
+    agents enrôlés, AD, Velociraptor, connecteurs pull. Un hôte adopté par
+    l'opérateur passe `declared` et rentre alors dans le ML.
+    """
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -95,7 +103,7 @@ def get_assets():
                 SELECT id, name, category, subcategory, role, criticality,
                        ip_addresses, hostname, os, mac_vendor, services
                 FROM assets
-                WHERE status = 'active'
+                WHERE status = 'active' AND inventory_status = 'declared'
             """)
             return cur.fetchall()
     finally:

@@ -55,13 +55,15 @@ def _build_monitored_predicate(assets, internal_networks):
             ip = ipaddress.ip_address(asset_id)
         except ValueError:
             return False
-        # Customer-declared networks take precedence.
+        # Customer-declared networks (operator-declared → trusted).
         for net in declared_networks:
             if ip in net:
                 return True
-        # RFC1918 fallback — keeps fresh installs working without the
-        # operator having to fill internal_networks immediately.
-        return _is_private_ipv4(asset_id)
+        # Doctrine v2 (declared/quarantine) : plus de fallback RFC1918. Un hôte
+        # privé non déclaré n'est PAS de confiance — il vit en quarantaine et
+        # doit être adopté avant d'entrer dans le ML. (décision 1 : RFC1918 =
+        # suggestion d'adoption, pas trust automatique.)
+        return False
 
     return is_monitored
 

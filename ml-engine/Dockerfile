@@ -98,6 +98,14 @@ COPY --from=trainer /build/datasets/dga_lstm.onnx \
 ENV DATABASE_URL=postgres://threatclaw:threatclaw@threatclaw-db:5432/threatclaw
 ENV ML_MODEL_DIR=/models
 
+# Tourner en uid 1000 (comme le core), PAS en root. Le secret Docker du mot de
+# passe DB est monté en mode 0600 détenu par 1000:1000 ; avec `cap_drop: ALL`
+# le root du conteneur perd CAP_DAC_OVERRIDE et ne peut PAS lire ce fichier →
+# `$(cat /run/secrets/tc_db_password)` sort vide → `fe_sendauth: no password
+# supplied`. En uid 1000 (= propriétaire du secret), la lecture marche.
+RUN chown -R 1000:1000 /app /models
+USER 1000:1000
+
 VOLUME /models
 
 HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
