@@ -17,8 +17,12 @@ async function proxyAuth(req: NextRequest) {
     headers["Cookie"] = cookie;
   }
 
-  // Forward client IP for brute force tracking
-  const forwarded = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
+  // Forward client IP for brute force tracking. FRONT-M3 : ne PAS faire confiance
+  // au `x-forwarded-for` fourni par le client (spoofable → contourne le lockout
+  // anti-bruteforce). On prend `x-real-ip` (posé par nginx = IP réelle, non
+  // falsifiable), sinon la DERNIÈRE entrée du XFF (ajoutée par nginx en dernier).
+  const xffLast = req.headers.get("x-forwarded-for")?.split(",").pop()?.trim();
+  const forwarded = req.headers.get("x-real-ip") || xffLast || "unknown";
   headers["X-Forwarded-For"] = forwarded;
   const ua = req.headers.get("user-agent") || "unknown";
   headers["User-Agent"] = ua;

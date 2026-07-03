@@ -245,7 +245,12 @@ pub fn decide_execution(mode: &ModeConfig, cmd: &ValidatedCommand) -> ExecutionD
         AgentMode::Investigator => ExecutionDecision::ProposalOnly,
         AgentMode::Responder => ExecutionDecision::RequiresHitl,
         AgentMode::AutonomousLow => {
-            if mode.can_auto_execute(cmd.risk) {
+            // ING-H8 : une action marquée `requires_hitl` n'est JAMAIS
+            // auto-exécutée, même si son risk-level est Low. Le flag HITL
+            // (destructif : block-ip, disable-account, isolate…) prime sur le
+            // risk-level — sinon un `net-002 fail2ban banip` (Low + requires_hitl)
+            // passerait en auto en sautant la liste protégée.
+            if !cmd.requires_hitl && mode.can_auto_execute(cmd.risk) {
                 ExecutionDecision::AutoExecute
             } else {
                 ExecutionDecision::RequiresHitl
@@ -442,6 +447,37 @@ mod tests {
         assert_eq!(
             decide_execution(&mode, &cmd),
             ExecutionDecision::ProposalOnly
+        );
+    }
+
+    #[test]
+    fn test_autonomous_low_never_auto_executes_hitl_action() {
+        // ING-H8 : en AutonomousLow, une action Low mais `requires_hitl` reste HITL.
+        let mode = ModeConfig::for_mode(AgentMode::AutonomousLow);
+        let hitl_cmd = ValidatedCommand {
+            id: "net-002".to_string(),
+            rendered_cmd: "fail2ban-client set sshd banip 1.2.3.4".to_string(),
+            undo_cmd: None,
+            risk: RiskLevel::Low,
+            requires_hitl: true,
+            params: HashMap::new(),
+        };
+        assert_eq!(
+            decide_execution(&mode, &hitl_cmd),
+            ExecutionDecision::RequiresHitl
+        );
+        // Contrôle : Low SANS requires_hitl → auto-exécutable.
+        let auto_cmd = ValidatedCommand {
+            id: "net-002".to_string(),
+            rendered_cmd: "fail2ban-client set sshd banip 1.2.3.4".to_string(),
+            undo_cmd: None,
+            risk: RiskLevel::Low,
+            requires_hitl: false,
+            params: HashMap::new(),
+        };
+        assert_eq!(
+            decide_execution(&mode, &auto_cmd),
+            ExecutionDecision::AutoExecute
         );
     }
 

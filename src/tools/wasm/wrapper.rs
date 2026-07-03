@@ -324,8 +324,8 @@ impl near::agent::host::Host for StoreData {
             .map(|h| h.max_response_bytes)
             .unwrap_or(10 * 1024 * 1024);
 
-        // Resolve hostname and reject private/internal IPs to prevent DNS rebinding.
-        reject_private_ip(&url)?;
+        // SSRF : la résolution unique + vérif IP + pinning de l'adresse se fait
+        // dans le runtime ci-dessous (anti DNS-rebinding). Voir CORE-H3.
 
         // Make HTTP request using a dedicated single-threaded runtime.
         // We're inside spawn_blocking, so we can't rely on the main runtime's
@@ -341,12 +341,28 @@ impl near::agent::host::Host for StoreData {
             );
         }
         let rt = self.http_runtime.as_ref().expect("just initialized"); // safety: is_none branch above guarantees Some
+        let http_timeout =
+            Duration::from_millis(timeout_ms.unwrap_or(30_000).min(300_000) as u64);
         let result = rt.block_on(async {
-            let client = reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+            // CORE-H3 : résoudre UNE seule fois, vérifier l'IP (privée /
+            // link-local / metadata, IPv4-mapped IPv6 inclus) puis ÉPINGLER
+            // l'adresse → pas de 2e résolution DNS dans reqwest (anti-rebinding).
+            // Réutilise le client SSRF-safe du tool builtin HTTP.
+            let parsed = reqwest::Url::parse(&url).map_err(|e| format!("invalid URL: {e}"))?;
+            let host = parsed
+                .host_str()
+                .ok_or_else(|| "URL missing host".to_string())?
+                .to_string();
+            let addrs = crate::tools::builtin::http::validate_and_resolve_url(&parsed)
+                .await
+                .map_err(|e| format!("SSRF check failed: {e}"))?;
+            let client = crate::tools::builtin::http::build_pinned_client(
+                &host,
+                &addrs,
+                http_timeout,
+                reqwest::redirect::Policy::none(),
+            )
+            .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
             let mut request = match method.to_uppercase().as_str() {
                 "GET" => client.get(&url),
@@ -366,10 +382,7 @@ impl near::agent::host::Host for StoreData {
                 request = request.body(body_bytes);
             }
 
-            // Caller-specified timeout (default 30s, max 5min)
-            let timeout_ms = timeout_ms.unwrap_or(30_000).min(300_000) as u64;
-            let timeout = Duration::from_millis(timeout_ms);
-            let response = request.timeout(timeout).send().await.map_err(|e| {
+            let response = request.timeout(http_timeout).send().await.map_err(|e| {
                 // Walk the full error chain for the actual root cause
                 let mut chain = format!("HTTP request failed: {}", e);
                 let mut source = std::error::Error::source(&e);
@@ -958,14 +971,27 @@ async fn refresh_oauth_token(
         );
         return false;
     }
-    if let Err(reason) = reject_private_ip(&config.token_url) {
-        tracing::warn!(
-            token_url = %config.token_url,
-            reason = %reason,
-            "OAuth token_url points to a private/internal IP, refusing token refresh"
-        );
-        return false;
-    }
+    // CORE-H3 : résoudre + vérifier l'IP UNE fois, puis épingler (anti-rebinding).
+    let token_parsed = match reqwest::Url::parse(&config.token_url) {
+        Ok(u) => u,
+        Err(_) => {
+            tracing::warn!(token_url = %config.token_url, "OAuth token_url invalid, refusing token refresh");
+            return false;
+        }
+    };
+    let token_host = token_parsed.host_str().unwrap_or_default().to_string();
+    let token_addrs = match crate::tools::builtin::http::validate_and_resolve_url(&token_parsed).await
+    {
+        Ok(a) => a,
+        Err(reason) => {
+            tracing::warn!(
+                token_url = %config.token_url,
+                reason = %reason,
+                "OAuth token_url points to a private/internal IP (or unresolvable), refusing token refresh"
+            );
+            return false;
+        }
+    };
 
     let refresh_name = format!("{}_refresh_token", config.secret_name);
     let refresh_secret = match store.get_decrypted(user_id, &refresh_name).await {
@@ -980,11 +1006,12 @@ async fn refresh_oauth_token(
         }
     };
 
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-    {
+    let client = match crate::tools::builtin::http::build_pinned_client(
+        &token_host,
+        &token_addrs,
+        Duration::from_secs(15),
+        reqwest::redirect::Policy::none(),
+    ) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(error = %e, "Failed to build HTTP client for token refresh");
@@ -1239,85 +1266,11 @@ fn extract_host_from_url(url: &str) -> Option<String> {
     })
 }
 
-/// Resolve the URL's hostname and reject connections to private/internal IP addresses.
-/// This prevents DNS rebinding attacks where an attacker's domain resolves to an
-/// internal IP after passing the allowlist check.
-fn reject_private_ip(url: &str) -> Result<(), String> {
-    let parsed = url::Url::parse(url).map_err(|e| format!("Failed to parse URL: {e}"))?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return Err(format!("Unsupported URL scheme: {}", parsed.scheme()));
-    }
-    if !parsed.username().is_empty() || parsed.password().is_some() {
-        return Err("URL contains userinfo (@) which is not allowed".to_string());
-    }
-
-    let host = parsed
-        .host_str()
-        .map(|h| {
-            h.strip_prefix('[')
-                .and_then(|v| v.strip_suffix(']'))
-                .unwrap_or(h)
-        })
-        .ok_or_else(|| "Failed to parse host from URL".to_string())?;
-
-    // If the host is already an IP, check it directly
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        return if is_private_ip(ip) {
-            Err(format!(
-                "HTTP request to private/internal IP {} is not allowed",
-                ip
-            ))
-        } else {
-            Ok(())
-        };
-    }
-
-    // Resolve DNS and check all addresses
-    use std::net::ToSocketAddrs;
-    // Port 0 is a placeholder; ToSocketAddrs needs host:port but the port
-    // doesn't affect which IPs the hostname resolves to.
-    let addrs: Vec<_> = format!("{}:0", host)
-        .to_socket_addrs()
-        .map_err(|e| format!("DNS resolution failed for {}: {}", host, e))?
-        .collect();
-
-    if addrs.is_empty() {
-        return Err(format!("DNS resolution returned no addresses for {}", host));
-    }
-
-    for addr in &addrs {
-        if is_private_ip(addr.ip()) {
-            return Err(format!(
-                "DNS rebinding detected: {} resolved to private IP {}",
-                host,
-                addr.ip()
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-/// Check if an IP address belongs to a private/internal range.
-fn is_private_ip(ip: std::net::IpAddr) -> bool {
-    match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_loopback()           // 127.0.0.0/8
-            || v4.is_private()         // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-            || v4.is_link_local()      // 169.254.0.0/16
-            || v4.is_unspecified()     // 0.0.0.0
-            || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64 // 100.64.0.0/10 (CGNAT)
-        }
-        std::net::IpAddr::V6(v6) => {
-            v6.is_loopback()           // ::1
-            || v6.is_unspecified()     // ::
-            // fc00::/7 (unique local)
-            || (v6.segments()[0] & 0xFE00) == 0xFC00
-            // fe80::/10 (link-local)
-            || (v6.segments()[0] & 0xFFC0) == 0xFE80
-        }
-    }
-}
+// (SSRF : la validation d'IP + le pinning anti-rebinding sont désormais fournis
+// par `crate::tools::builtin::http` — `validate_and_resolve_url` +
+// `build_pinned_client`, réutilisés ci-dessus. Les anciennes `reject_private_ip`
+// / `is_private_ip` (qui ne géraient pas l'IPv4-mapped IPv6) ont été retirées
+// pour éviter deux implémentations SSRF divergentes. Voir CORE-H3.)
 
 fn schema_contains_container_properties(schema: &serde_json::Value) -> bool {
     schema
@@ -2065,68 +2018,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_is_private_ip_v4() {
-        use std::net::IpAddr;
-        // Private ranges
-        assert!(super::is_private_ip("127.0.0.1".parse::<IpAddr>().unwrap()));
-        assert!(super::is_private_ip("10.0.0.1".parse::<IpAddr>().unwrap()));
-        assert!(super::is_private_ip(
-            "172.16.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(super::is_private_ip(
-            "192.168.1.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(super::is_private_ip(
-            "169.254.1.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(super::is_private_ip("0.0.0.0".parse::<IpAddr>().unwrap()));
-        // CGNAT
-        assert!(super::is_private_ip(
-            "100.64.0.1".parse::<IpAddr>().unwrap()
-        ));
-
-        // Public IPs
-        assert!(!super::is_private_ip("8.8.8.8".parse::<IpAddr>().unwrap()));
-        assert!(!super::is_private_ip("1.1.1.1".parse::<IpAddr>().unwrap()));
-        assert!(!super::is_private_ip(
-            "93.184.216.34".parse::<IpAddr>().unwrap()
-        ));
-    }
-
-    #[test]
-    fn test_is_private_ip_v6() {
-        use std::net::IpAddr;
-        assert!(super::is_private_ip("::1".parse::<IpAddr>().unwrap()));
-        assert!(super::is_private_ip("::".parse::<IpAddr>().unwrap()));
-        assert!(super::is_private_ip("fc00::1".parse::<IpAddr>().unwrap()));
-        assert!(super::is_private_ip("fe80::1".parse::<IpAddr>().unwrap()));
-
-        // Public
-        assert!(!super::is_private_ip(
-            "2606:4700::1111".parse::<IpAddr>().unwrap()
-        ));
-    }
-
-    #[test]
-    fn test_reject_private_ip_loopback() {
-        let result = super::reject_private_ip("https://127.0.0.1:8080/api");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("private/internal IP"));
-    }
-
-    #[test]
-    fn test_reject_private_ip_internal() {
-        let result = super::reject_private_ip("https://192.168.1.1/admin");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_reject_private_ip_public_ok() {
-        // 8.8.8.8 (Google DNS) is public
-        let result = super::reject_private_ip("https://8.8.8.8/dns-query");
-        assert!(result.is_ok());
-    }
+    // (Tests SSRF `is_private_ip`/`reject_private_ip` retirés avec les fonctions :
+    // la validation d'IP + le pinning sont couverts par les tests de
+    // `crate::tools::builtin::http`. Voir CORE-H3.)
 
     #[tokio::test]
     async fn test_untyped_override_preserves_extracted_discovery_schema() {

@@ -33,7 +33,11 @@ jobs:
 
       - name: Run harness
         env:
+          # INFRA-M6 : passer l'input par env (jamais inliné dans le shell) —
+          # une valeur `scenario` piégée (`"; <cmd>;"`) s'exécuterait sinon sur
+          # le runner. Référencé via "$SCENARIO" (quoté).
           TIMEOUT_MIN: ${{ github.event.inputs.timeout_min }}
+          SCENARIO: ${{ github.event.inputs.scenario }}
         run: |
           chmod +x scripts/test-attacks/run.sh
-          scripts/test-attacks/run.sh "${{ github.event.inputs.scenario }}"
+          scripts/test-attacks/run.sh "$SCENARIO"

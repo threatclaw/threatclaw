@@ -280,7 +280,7 @@ async fn derive_lateral_paths_from_logins(store: &dyn Database) -> usize {
         //    LATERAL_PATH edges so shortestPath finds the link in
         //    either direction. Canonical ordering (a < b) ensures we
         //    don't run the same pair twice within this user.
-        let user_esc = user.replace('\'', "\\'");
+        let user_esc = user.replace('\\', "\\\\").replace('\'', "\\'");
         for i in 0..assets.len() {
             for j in (i + 1)..assets.len() {
                 let a = &assets[i];
@@ -288,8 +288,8 @@ async fn derive_lateral_paths_from_logins(store: &dyn Database) -> usize {
                 if a == b {
                     continue;
                 }
-                let a_esc = a.replace('\'', "\\'");
-                let b_esc = b.replace('\'', "\\'");
+                let a_esc = a.replace('\\', "\\\\").replace('\'', "\\'");
+                let b_esc = b.replace('\\', "\\\\").replace('\'', "\\'");
                 let edge_cypher = format!(
                     "MATCH (n1:Asset {{id: '{a}'}}), (n2:Asset {{id: '{b}'}}) \
                      MERGE (n1)-[:LATERAL_PATH {{via_user: '{u}'}}]->(n2) \
@@ -467,8 +467,8 @@ async fn find_shortest_path(
     dst: &str,
     max_hops: usize,
 ) -> Option<Vec<String>> {
-    let src_esc = src.replace('\'', "\\'");
-    let dst_esc = dst.replace('\'', "\\'");
+    let src_esc = src.replace('\\', "\\\\").replace('\'', "\\'");
+    let dst_esc = dst.replace('\\', "\\\\").replace('\'', "\\'");
 
     let mut best: Option<Vec<String>> = None;
     for rel in &["LATERAL_PATH", "ATTACKS"] {
@@ -607,7 +607,7 @@ async fn collect_cves_on_path(store: &dyn Database, path: &[String]) -> Vec<Stri
     }
     let escaped: Vec<String> = path
         .iter()
-        .map(|s| format!("'{}'", s.replace('\'', "\\'")))
+        .map(|s| format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'")))
         .collect();
     // The graph writes `(c:CVE {id})-[:AFFECTS]->(a:Asset)` (threat_graph::record_cve_affects).
     // This query used to MATCH `(a)-[:AFFECTED_BY]->(c)` returning `c.cve_id` — a label,

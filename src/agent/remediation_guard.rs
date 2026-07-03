@@ -10,8 +10,59 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 // Modifying the DB after boot has no effect.
 
 static PROTECTED_IPS: OnceLock<HashSet<String>> = OnceLock::new();
+/// Plages CIDR protégées (config RSSI + défauts) — ING-C2. IPv4 uniquement
+/// (les block_ip firewall ciblent quasi toujours de l'IPv4).
+static PROTECTED_CIDRS: OnceLock<Vec<(std::net::Ipv4Addr, u8)>> = OnceLock::new();
 static SELF_IP: OnceLock<String> = OnceLock::new();
 static SELF_HOSTNAME: OnceLock<String> = OnceLock::new();
+
+/// IPs jamais bloquables/isolables par défaut : résolveurs DNS publics, metadata
+/// cloud. Bloquer/isoler ceux-ci via une règle firewall WAN = auto-DoS de la
+/// victime par sa propre défense (finding ING-C2 — un attaquant injecte une
+/// fausse alerte avec `source_ip=1.1.1.1` pour faire blacklister le résolveur).
+const DEFAULT_PROTECTED_IPS: &[&str] = &[
+    "1.1.1.1",
+    "1.0.0.1", // Cloudflare
+    "8.8.8.8",
+    "8.8.4.4", // Google
+    "9.9.9.9",
+    "149.112.112.112", // Quad9
+    "208.67.222.222",
+    "208.67.220.220",  // OpenDNS
+    "169.254.169.254", // metadata cloud (IMDS)
+];
+
+/// IPs qui ne sont JAMAIS une cible de blocage/isolation valide (bloquer/isoler
+/// n'a aucun sens et/ou est dangereux). N'inclut PAS le RFC1918 privé : isoler
+/// un poste interne compromis est légitime — seul le RSSI protège ses plages via
+/// `tc_protected_assets` (CIDR).
+fn ip_is_never_blockable(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+                || v4 == std::net::Ipv4Addr::new(169, 254, 169, 254)
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.is_unspecified() || v6.is_multicast()
+        }
+    }
+}
+
+/// `ip` tombe-t-il dans le CIDR `net/prefix` (IPv4) ?
+fn ipv4_in_cidr(net: std::net::Ipv4Addr, prefix: u8, ip: std::net::Ipv4Addr) -> bool {
+    if prefix == 0 {
+        return true;
+    }
+    if prefix > 32 {
+        return false;
+    }
+    let mask: u32 = u32::MAX << (32 - prefix);
+    (u32::from(ip) & mask) == (u32::from(net) & mask)
+}
 
 /// Call once at boot to lock the protected infrastructure list.
 pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
@@ -34,12 +85,28 @@ pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
     protected.insert("localhost".into());
     protected.insert(self_ip.clone());
     protected.insert(self_hostname.clone());
+    // ING-C2 : résolveurs/CDN/metadata jamais bloquables (anti auto-DoS).
+    for ip in DEFAULT_PROTECTED_IPS {
+        protected.insert((*ip).to_string());
+    }
+    let mut cidrs: Vec<(std::net::Ipv4Addr, u8)> = Vec::new();
 
-    // Read RSSI-configured protected assets from DB (locked at boot)
+    // Read RSSI-configured protected assets from DB (locked at boot). Une entrée
+    // `a.b.c.d/N` est traitée comme une plage CIDR protégée (ING-C2).
     if let Ok(Some(val)) = store.get_setting("_system", "tc_protected_assets").await {
         if let Some(arr) = val.as_array() {
             for v in arr {
                 if let Some(s) = v.as_str() {
+                    if let Some((net, pfx)) = s.split_once('/') {
+                        if let (Ok(net), Ok(pfx)) =
+                            (net.parse::<std::net::Ipv4Addr>(), pfx.parse::<u8>())
+                        {
+                            if pfx <= 32 {
+                                cidrs.push((net, pfx));
+                                continue;
+                            }
+                        }
+                    }
                     protected.insert(s.to_string());
                 }
             }
@@ -52,7 +119,9 @@ pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
     }
 
     let count = protected.len();
+    let cidr_count = cidrs.len();
     PROTECTED_IPS.set(protected).ok();
+    PROTECTED_CIDRS.set(cidrs).ok();
 
     // Boot-lock rate limits from DB (RSSI-configured via dashboard)
     if let Ok(Some(val)) = store.get_setting("_system", "tc_hitl_limits").await {
@@ -68,25 +137,40 @@ pub async fn init_protected_infrastructure(store: &dyn crate::db::Database) {
     }
 
     tracing::info!(
-        "REMEDIATION_GUARD: {} protected IPs/hosts locked at boot (self={})",
+        "REMEDIATION_GUARD: {} protected IPs/hosts + {} CIDR ranges locked at boot (self={})",
         count,
+        cidr_count,
         self_ip
     );
 }
 
 /// Check if a target is protected (cannot be isolated/blocked).
 pub fn is_protected_target(target: &str) -> bool {
-    if let Some(protected) = PROTECTED_IPS.get() {
-        if protected.contains(target) {
+    let Some(protected) = PROTECTED_IPS.get() else {
+        // If not initialized, block everything (fail-safe).
+        return true;
+    };
+    if protected.contains(target) {
+        return true;
+    }
+    // Case-insensitive hostname match.
+    let target_lower = target.to_lowercase();
+    if protected.iter().any(|p| p.to_lowercase() == target_lower) {
+        return true;
+    }
+    // ING-C2 : checks IP — jamais bloquables (loopback / link-local / metadata /
+    // broadcast) + plages CIDR protégées configurées par le RSSI.
+    if let Ok(ip) = target.parse::<std::net::IpAddr>() {
+        if ip_is_never_blockable(ip) {
             return true;
         }
-        // Also check case-insensitive hostname match
-        let target_lower = target.to_lowercase();
-        protected.iter().any(|p| p.to_lowercase() == target_lower)
-    } else {
-        // If not initialized, block everything (fail-safe)
-        true
+        if let (std::net::IpAddr::V4(v4), Some(cidrs)) = (ip, PROTECTED_CIDRS.get()) {
+            if cidrs.iter().any(|(net, pfx)| ipv4_in_cidr(*net, *pfx, v4)) {
+                return true;
+            }
+        }
     }
+    false
 }
 
 // ── Layer 3: Rate limits (boot-locked from DB, fallback to hardcoded) ──
@@ -233,6 +317,33 @@ mod tests {
         assert_eq!(ldap_escape("user*"), "user\\2a");
         assert_eq!(ldap_escape("user)(cn=*)"), "user\\29\\28cn=\\2a\\29");
         assert_eq!(ldap_escape("admin\\test"), "admin\\5ctest");
+    }
+
+    #[test]
+    fn test_ip_never_blockable() {
+        use std::net::IpAddr;
+        // ING-C2 : loopback / link-local / metadata / broadcast jamais bloquables.
+        assert!(ip_is_never_blockable("127.0.0.1".parse::<IpAddr>().unwrap()));
+        assert!(ip_is_never_blockable("169.254.169.254".parse::<IpAddr>().unwrap()));
+        assert!(ip_is_never_blockable("169.254.1.1".parse::<IpAddr>().unwrap()));
+        assert!(ip_is_never_blockable("255.255.255.255".parse::<IpAddr>().unwrap()));
+        assert!(ip_is_never_blockable("::1".parse::<IpAddr>().unwrap()));
+        // Un poste interne RFC1918 RESTE bloquable/isolable (isolation légitime).
+        assert!(!ip_is_never_blockable("10.0.0.5".parse::<IpAddr>().unwrap()));
+        // Une IP publique normale reste bloquable (vraie remédiation).
+        assert!(!ip_is_never_blockable("203.0.113.7".parse::<IpAddr>().unwrap()));
+    }
+
+    #[test]
+    fn test_ipv4_in_cidr() {
+        use std::net::Ipv4Addr;
+        let net: Ipv4Addr = "10.0.0.0".parse().unwrap();
+        assert!(ipv4_in_cidr(net, 8, "10.5.6.7".parse().unwrap()));
+        assert!(!ipv4_in_cidr(net, 8, "11.0.0.1".parse().unwrap()));
+        let net2: Ipv4Addr = "192.168.1.0".parse().unwrap();
+        assert!(ipv4_in_cidr(net2, 24, "192.168.1.42".parse().unwrap()));
+        assert!(!ipv4_in_cidr(net2, 24, "192.168.2.1".parse().unwrap()));
+        assert!(ipv4_in_cidr("0.0.0.0".parse().unwrap(), 0, "8.8.8.8".parse().unwrap()));
     }
 
     #[test]

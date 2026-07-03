@@ -3,7 +3,7 @@
 mod echo;
 pub mod extension_tools;
 mod file;
-mod http;
+pub(crate) mod http; // fns SSRF-safe (validate_and_resolve_url / build_pinned_client) réutilisées par le wrapper WASM
 mod job;
 mod json;
 mod memory;

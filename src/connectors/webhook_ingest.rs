@@ -1155,12 +1155,6 @@ async fn parse_changedetection(store: &dyn Database, json: &serde_json::Value) -
     let title_text = json["title"].as_str().unwrap_or("Content changed");
 
     let alert_title = format!("Website change detected: {} — {}", title_text, url);
-    let description = json["current_snapshot"].as_str().unwrap_or("").to_string();
-    let _desc_truncated = if description.len() > 500 {
-        &description[..500]
-    } else {
-        &description
-    };
 
     if store
         .insert_sigma_alert("cd-webhook", "medium", &alert_title, "", None, None)
@@ -1201,12 +1195,6 @@ async fn parse_generic(store: &dyn Database, source: &str, json: &serde_json::Va
         .or_else(|| json["client_ip"].as_str());
 
     let source_label = format!("{}-webhook", source);
-    let description = serde_json::to_string_pretty(json).unwrap_or_default();
-    let _desc_truncated = if description.len() > 1000 {
-        &description[..1000]
-    } else {
-        &description
-    };
 
     if store
         .insert_sigma_alert(&source_label, normalized_level, title, "", ip, None)
