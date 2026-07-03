@@ -169,12 +169,15 @@ const PERSISTENT_SOURCES: &[&str] = &[
 /// 3-distinct-days threshold to count.
 pub fn inventory_status_for(source: &str) -> &'static str {
     let s = source.to_lowercase();
-    if DECLARED_SOURCES.iter().any(|d| *d == s) {
+    // Doctrine inventaire v2 (declared/quarantine) : les sources AUTHENTIFIÉES
+    // — agents enrôlés / AD / connecteurs pull (pare-feux, switches, Proxmox…)
+    // pour lesquels l'opérateur a fourni des creds — naissent `declared`. Tout
+    // le reste (syslog, scan passif, IDS, générique) naît `quarantine` et attend
+    // une adoption humaine avant d'entrer dans le ML / les incidents / le billing.
+    if DECLARED_SOURCES.iter().any(|d| *d == s) || PERSISTENT_SOURCES.iter().any(|p| *p == s) {
         "declared"
-    } else if PERSISTENT_SOURCES.iter().any(|p| *p == s) {
-        "observed_persistent"
     } else {
-        "observed_transient"
+        "quarantine"
     }
 }
 
@@ -271,7 +274,28 @@ pub async fn reclassify_assets_job(store: &Arc<dyn Database>) -> Result<u64, Str
             unexcluded_n
         );
     }
-    Ok(inactive_n + unexcluded_n)
+    // Doctrine v2 : purge des candidats quarantine inactifs > TTL (défaut 40j
+    // d'inactivité, configurable via `_system/tc_quarantine_ttl_days`). On retire
+    // le candidat d'asset ; les logs restent selon la rétention.
+    let ttl_days = store
+        .get_setting("_system", "tc_quarantine_ttl_days")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_i64())
+        .unwrap_or(40)
+        .clamp(1, 3650);
+    let purged_n = store
+        .purge_stale_quarantine(ttl_days)
+        .await
+        .map_err(|e| format!("purge quarantine failed: {e}"))?;
+    if purged_n > 0 {
+        info!(
+            "INVENTORY: purged {} stale quarantine candidates (inactive > {}d)",
+            purged_n, ttl_days
+        );
+    }
+    Ok(inactive_n + unexcluded_n + purged_n)
 }
 
 /// Spawn the daily reclassification cron. Caller is responsible for
@@ -414,23 +438,21 @@ mod tests {
         assert_eq!(inventory_status_for("intune"), "declared");
         assert_eq!(inventory_status_for("manual"), "declared");
 
-        // Network connectors that own the asset.
-        assert_eq!(inventory_status_for("pfsense"), "observed_persistent");
-        assert_eq!(inventory_status_for("opnsense"), "observed_persistent");
-        assert_eq!(inventory_status_for("fortinet"), "observed_persistent");
-        assert_eq!(inventory_status_for("unifi"), "observed_persistent");
+        // Doctrine v2 : connecteurs réseau authentifiés (pull-API) = declared.
+        assert_eq!(inventory_status_for("pfsense"), "declared");
+        assert_eq!(inventory_status_for("opnsense"), "declared");
+        assert_eq!(inventory_status_for("fortinet"), "declared");
+        assert_eq!(inventory_status_for("unifi"), "declared");
 
-        // Passive / unknown — transient (must reach 3 distinct days).
-        assert_eq!(inventory_status_for("nmap"), "observed_transient");
-        assert_eq!(inventory_status_for("dhcp"), "observed_transient");
-        assert_eq!(inventory_status_for("alert-auto"), "observed_transient");
-        assert_eq!(
-            inventory_status_for("brand-new-source"),
-            "observed_transient"
-        );
+        // Passif / inconnu / non authentifié → quarantine (à adopter).
+        assert_eq!(inventory_status_for("nmap"), "quarantine");
+        assert_eq!(inventory_status_for("dhcp"), "quarantine");
+        assert_eq!(inventory_status_for("alert-auto"), "quarantine");
+        assert_eq!(inventory_status_for("brand-new-source"), "quarantine");
+        assert_eq!(inventory_status_for("syslog"), "quarantine");
 
         // Case insensitive.
         assert_eq!(inventory_status_for("OSquery"), "declared");
-        assert_eq!(inventory_status_for("PFSense"), "observed_persistent");
+        assert_eq!(inventory_status_for("PFSense"), "declared");
     }
 }

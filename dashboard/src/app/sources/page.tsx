@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { t as tr } from "@/lib/i18n";
 import { useLocale } from "@/lib/useLocale";
 import { NeuCard } from "@/components/chrome/NeuCard";
 import { ChromeButton } from "@/components/chrome/ChromeButton";
@@ -95,17 +94,24 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       {
         title: "Linux / macOS", titleEn: "Linux / macOS",
         steps: [
-          "curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- --url https://ADDR --token TOKEN",
-          { fr: "L'agent se configure automatiquement (systemd timer, 5 min sync)", en: "The agent configures itself automatically (systemd timer, 5 min sync)" },
+          "curl -fsSL https://get.threatclaw.io/agent | sudo bash -s -- --url https://ADDR --enroll-secret ENROLL_SECRET",
+          { fr: "Chaque poste s'enrôle et reçoit un token UNIQUE (le secret d'enrôlement ci-dessus ne sert qu'à l'install). L'agent se configure seul (systemd timer, 5 min).", en: "Each host enrolls and receives a UNIQUE token (the enrollment secret above is only used at install). The agent configures itself (systemd timer, 5 min)." },
         ],
       },
       {
         title: "Windows (PowerShell)", titleEn: "Windows (PowerShell)",
         steps: [
           { fr: "Ouvrez PowerShell en administrateur sur la machine cible.", en: "Open PowerShell as administrator on the target machine." },
-          "$env:TC_URL='https://ADDR'; $env:TC_TOKEN='TOKEN'; iwr -UseBasicParsing -SkipCertificateCheck https://ADDR/agent/windows | iex",
-          { fr: "L'installeur fait tout : osquery MSI, Sysmon (config SwiftOnSecurity), Scheduled Task SYSTEM toutes les 5 min, manifest server-driven. Aucune autre etape sur l'endpoint.", en: "The installer does everything: osquery MSI, Sysmon (SwiftOnSecurity config), SYSTEM Scheduled Task every 5 min, server-driven manifest. No further step on the endpoint." },
-          { fr: "Idempotent : peut etre rejoue sans risque pour mettre a jour.", en: "Idempotent: safe to re-run for updates." },
+          "$env:TC_URL='https://ADDR'; $env:TC_ENROLL_SECRET='ENROLL_SECRET'; iwr -UseBasicParsing -SkipCertificateCheck https://ADDR/agent/windows | iex",
+          { fr: "L'installeur fait tout : enrôlement (token unique par poste), osquery MSI, Sysmon (config SwiftOnSecurity), Scheduled Task SYSTEM toutes les 5 min, manifest server-driven.", en: "The installer does everything: enrollment (unique per-host token), osquery MSI, Sysmon (SwiftOnSecurity config), SYSTEM Scheduled Task every 5 min, server-driven manifest." },
+          { fr: "Idempotent : peut être rejoué sans risque (réutilise l'identité existante ; TC_FORCE_ENROLL=1 pour ré-enrôler).", en: "Idempotent: safe to re-run (reuses the existing identity; TC_FORCE_ENROLL=1 to re-enroll)." },
+        ],
+      },
+      {
+        title: "Déploiement de masse (GPO / Intune)", titleEn: "Mass deployment (GPO / Intune)",
+        steps: [
+          { fr: "Poussez la MÊME commande à tout le parc (le secret d'enrôlement est commun). Chaque poste reçoit son token unique au 1er lancement, réutilisé ensuite — aucune personnalisation par machine.", en: "Push the SAME command to the whole fleet (the enrollment secret is shared). Each host gets its own unique token on first run, reused afterwards — no per-machine customization." },
+          { fr: "Après avoir enrôlé le parc, vous pouvez régénérer le secret ci-dessous (ça n'affecte aucun agent déjà enrôlé, ça invalide seulement les anciennes commandes).", en: "Once the fleet is enrolled, you can rotate the secret below (it does not affect already-enrolled agents, it only invalidates old commands)." },
         ],
       },
       {
@@ -300,6 +306,28 @@ export default function SourcesPage() {
     setGeneratingToken(null);
   };
 
+  // Secret d'enrôlement des agents (doctrine v2) : sert à l'install, chaque poste
+  // reçoit ensuite son token unique. Affiché pour la source osquery ; rotable.
+  const [enrollSecret, setEnrollSecret] = useState<string | null>(null);
+  const [rotatingSecret, setRotatingSecret] = useState(false);
+  useEffect(() => {
+    fetch("/api/tc/agent/enroll-secret")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j?.enroll_secret) setEnrollSecret(j.enroll_secret); })
+      .catch(() => {});
+  }, []);
+  const rotateSecret = async () => {
+    if (!confirm(locale === "fr"
+      ? "Régénérer le secret d'enrôlement ? Les agents déjà enrôlés ne sont PAS affectés ; seules les anciennes commandes d'install cesseront de fonctionner."
+      : "Rotate the enrollment secret? Already-enrolled agents are NOT affected; only old install commands will stop working.")) return;
+    setRotatingSecret(true);
+    try {
+      const res = await fetch("/api/tc/agent/enroll-secret/rotate", { method: "POST" });
+      if (res.ok) { const j = await res.json(); if (j?.enroll_secret) setEnrollSecret(j.enroll_secret); }
+    } catch { /* ignore */ }
+    setRotatingSecret(false);
+  };
+
   if (loading && !data) {
     return (
       <div style={{ padding: "32px", textAlign: "center", color: "var(--tc-text-muted)" }}>
@@ -436,8 +464,38 @@ export default function SourcesPage() {
                     </div>
                   </div>
 
-                  {/* Webhook info (for webhook-type sources) */}
-                  {source.type === "webhook" && (
+                  {/* Enroll secret (agent endpoint — doctrine v2, remplace le token de flotte) */}
+                  {source.id === "osquery" && (
+                    <div style={{ marginBottom: "16px" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
+                        <Lock size={12} style={{ verticalAlign: "middle", marginRight: "4px" }} />
+                        {locale === "fr" ? "Secret d'enrôlement" : "Enrollment secret"}
+                      </div>
+                      <div style={{
+                        padding: "10px 12px", borderRadius: "var(--tc-radius-input)",
+                        background: "var(--tc-surface-alt)", border: "1px solid var(--tc-border-light)",
+                        fontSize: "12px", fontFamily: "monospace",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ color: "var(--tc-text-muted)", fontSize: "10px", width: "70px" }}>Secret:</span>
+                          <code style={{ color: "var(--tc-text)", flex: 1, wordBreak: "break-all" }}>{enrollSecret || "…"}</code>
+                          {enrollSecret && <CopyButton text={enrollSecret} />}
+                          <ChromeButton variant="glass" onClick={rotateSecret}
+                            style={{ fontSize: "10px", padding: "4px 10px" }}>
+                            {rotatingSecret ? "..." : (<><RefreshCw size={11} /> {locale === "fr" ? "Régénérer" : "Rotate"}</>)}
+                          </ChromeButton>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "6px", fontSize: "10px", color: "var(--tc-text-muted)" }}>
+                        {locale === "fr"
+                          ? "Sert uniquement à l'installation. Chaque agent reçoit ensuite son propre token, lié à sa machine (plus de token de flotte partagé)."
+                          : "Used only at install. Each agent then gets its own token, bound to its machine (no more shared fleet token)."}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Webhook info (for webhook-type sources — not the agent endpoint) */}
+                  {source.type === "webhook" && source.id !== "osquery" && (
                     <div style={{ marginBottom: "16px" }}>
                       <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--tc-text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
                         <Lock size={12} style={{ verticalAlign: "middle", marginRight: "4px" }} />
@@ -508,6 +566,7 @@ export default function SourcesPage() {
                             stepText.includes("POST") || stepText.includes("http") || stepText.includes("zkg") ||
                             stepText.includes("<") || stepText.includes("Module");
                           const displayStep = stepText.replace(/ADDR/g, syslogAddr.split(":")[0])
+                            .replace(/ENROLL_SECRET/g, enrollSecret || "YOUR_ENROLL_SECRET")
                             .replace(/TOKEN/g, source.webhook_token || "YOUR_TOKEN");
                           return (
                             <div key={si} style={{

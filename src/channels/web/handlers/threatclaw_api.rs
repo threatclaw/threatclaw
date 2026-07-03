@@ -283,6 +283,18 @@ pub fn start_background_services(
             tracing::info!("AUTO-START: Connector Sync Scheduler started");
         }
 
+        // Bootstrap du secret d'enrôlement des agents (idempotent, persistant).
+        // Sans lui, aucun poste ne peut s'enrôler (le token de flotte partagé est
+        // retiré — findings ING-C1/H6). Voir agent_identity.
+        match crate::connectors::agent_identity::get_or_create_enroll_secret(store_clone.as_ref())
+            .await
+        {
+            Ok(_) => tracing::info!(
+                "AUTO-START: agent enrollment secret ready (_system/tc_agent_enroll_secret)"
+            ),
+            Err(e) => tracing::warn!("AUTO-START: enroll secret bootstrap failed: {e}"),
+        }
+
         // Start Scan Worker Pool + Schedule Tick (passive enrichment via scan_queue)
         static SCAN_WORKERS_RUNNING: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
@@ -6185,6 +6197,104 @@ pub async fn anonymizer_rules_delete_handler(
 // WEBHOOK INGEST
 // ════════════════════════════════════════════════════════════════
 
+/// POST /api/tc/agent/enroll — enrôle un poste et retourne `{agent_id, token}`.
+///
+/// Remplace le token de flotte partagé (findings ING-C1/H6) : chaque poste reçoit
+/// un token unique lié à son `agent_id` (UUID serveur) et son `hostname`.
+/// Auth : header `X-Enroll-Secret` (secret d'enrôlement, temps constant). Route
+/// `MachineToken` (pas de session dashboard) ; nginx injecte le bearer + rate-limit.
+pub async fn agent_enroll_handler(
+    State(state): State<Arc<GatewayState>>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let store = match state.store.as_ref() {
+        Some(s) => s.as_ref(),
+        None => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "db not initialised").into_response();
+        }
+    };
+    let secret = headers
+        .get("x-enroll-secret")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !crate::connectors::agent_identity::verify_enroll_secret(store, secret).await {
+        return (StatusCode::UNAUTHORIZED, "invalid enroll secret").into_response();
+    }
+    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+    let hostname = parsed["hostname"].as_str().unwrap_or("").trim();
+    if hostname.is_empty() {
+        return (StatusCode::BAD_REQUEST, "hostname required").into_response();
+    }
+    let platform = parsed["platform"].as_str();
+    let agent_id = parsed["agent_id"].as_str();
+    match crate::connectors::agent_identity::enroll_agent(store, hostname, platform, agent_id).await
+    {
+        Ok(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "agent_id": e.agent_id, "token": e.token })),
+        )
+            .into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    }
+}
+
+/// POST /api/tc/assets/adopt — adopte des assets (quarantine → declared).
+/// Body : `{"ids": ["...", "..."]}`. Doctrine v2 : l'adoption fait entrer l'asset
+/// dans le ML / les incidents / le billing. Operator-only (perm assets:edit).
+pub async fn assets_adopt_handler(
+    State(state): State<Arc<GatewayState>>,
+    body: axum::body::Bytes,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::json!({}));
+    let ids: Vec<String> = parsed["ids"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let n = store.adopt_assets(&ids).await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "adopted": n })))
+}
+
+/// POST /api/tc/assets/adopt-rfc1918 — adopte tous les assets en quarantaine
+/// ayant une IP RFC1918 (bouton setup « adopter tout le RFC1918 observé »).
+pub async fn assets_adopt_rfc1918_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let n = store.adopt_rfc1918_quarantine().await.map_err(db_err)?;
+    Ok(Json(serde_json::json!({ "adopted": n })))
+}
+
+/// GET /api/tc/agent/enroll-secret — retourne le secret d'enrôlement (créé au
+/// besoin) pour construire la commande d'install. Operator-only (endpoint_agents:read).
+pub async fn agent_enroll_secret_get_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let secret = crate::connectors::agent_identity::get_or_create_enroll_secret(store.as_ref())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "enroll_secret": secret })))
+}
+
+/// POST /api/tc/agent/enroll-secret/rotate — régénère le secret d'enrôlement.
+/// N'affecte aucun agent déjà enrôlé. Operator-only (endpoint_agents:manage).
+pub async fn agent_enroll_secret_rotate_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let secret = crate::connectors::agent_identity::rotate_enroll_secret(store.as_ref())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    Ok(Json(serde_json::json!({ "enroll_secret": secret })))
+}
+
 pub async fn webhook_ingest_handler(
     State(state): State<Arc<GatewayState>>,
     Path(source): Path<String>,
@@ -6228,7 +6338,19 @@ pub async fn webhook_ingest_handler(
     // write-aheads the raw payload and acks immediately. All parsing / Sigma /
     // inserts happen later in the ingest worker pool — a burst no longer blocks
     // (and so no longer times out) the request.
-    if !crate::connectors::webhook_ingest::verify_token(store, &source, token).await {
+    // Auth : un agent enrôlé présente son token PAR-AGENT via `X-Agent-Id` ;
+    // sinon on retombe sur le token de source (connecteurs serveur : suricata,
+    // zeek… qui ne sont pas une flotte de postes). Le token par-agent retire la
+    // dépendance au secret partagé pour la flotte osquery ; l'attribution réelle
+    // (quel asset) est de toute façon re-vérifiée strictement dans le worker.
+    let agent_id = headers
+        .get("x-agent-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let authed = (!agent_id.is_empty()
+        && crate::connectors::agent_identity::verify_agent_token(store, agent_id, token).await)
+        || crate::connectors::webhook_ingest::verify_token(store, &source, token).await;
+    if !authed {
         return StatusCode::OK; // silent drop, no oracle (unchanged)
     }
     match store.ingest_queue_depth().await {

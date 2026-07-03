@@ -170,6 +170,30 @@ fn strip_agtype_quotes(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Génère un tag de dollar-quote Postgres ALÉATOIRE (`tc<hex>`) absent de `body`.
+///
+/// Le corps Cypher est passé à `ag_catalog.cypher(...)` encadré par un
+/// dollar-quote. Avec le tag fixe `$$`, une valeur attaquant-contrôlée (ex. un
+/// `username` Windows d'un event de logon) contenant `$$` termine le quote et
+/// tombe en SQL brut (CORE-H1, audit 2026-07-02). Un tag aléatoire et
+/// imprévisible par appel neutralise toute la classe : l'attaquant ne peut pas
+/// le deviner pour refermer le quote.
+fn random_dollar_tag(body: &str) -> String {
+    use rand::RngCore;
+    let mut b = [0u8; 9];
+    rand::rngs::OsRng.fill_bytes(&mut b);
+    let mut tag = String::from("tc");
+    for x in b {
+        tag.push_str(&format!("{x:02x}"));
+    }
+    // Garde-fou (collision quasi-impossible) : le tag ne doit pas figurer dans
+    // le corps, sinon celui-ci pourrait le refermer prématurément.
+    while body.contains(&tag) {
+        tag.push('z');
+    }
+    tag
+}
+
 /// Split RETURN clause into individual column expressions.
 /// Handles nested function calls like `collect(DISTINCT a.hostname)`.
 fn split_return_columns(return_clause: &str) -> Vec<String> {
@@ -2670,8 +2694,11 @@ impl ThreatClawStore for PgBackend {
             GRAPH_ENSURED.store(true, Ordering::Relaxed);
         }
 
-        // No SQL escaping needed — we use $$ dollar quoting
+        // CORE-H1 : dollar-quote au tag ALÉATOIRE par appel (pas le `$$` fixe).
+        // Une valeur attaquant-contrôlée contenant `$$` ne peut plus refermer le
+        // quote et tomber en SQL brut — le tag est imprévisible.
         let escaped = cypher;
+        let dq = random_dollar_tag(escaped);
 
         // Detect if the query has a RETURN clause (read) or not (mutation)
         let upper = cypher.to_uppercase();
@@ -2680,8 +2707,7 @@ impl ThreatClawStore for PgBackend {
         if !has_return {
             // Mutation (CREATE/MERGE/DELETE without RETURN) — use void return
             let sql = format!(
-                "SELECT * FROM ag_catalog.cypher('threat_graph', $$ {} $$) AS (result agtype)",
-                escaped,
+                "SELECT * FROM ag_catalog.cypher('threat_graph', ${dq}$ {escaped} ${dq}$) AS (result agtype)",
             );
             // Mutations may return 0 rows — that's fine
             let _ = conn.query(&*sql, &[]).await.map_err(query_err)?;
@@ -2734,8 +2760,7 @@ impl ThreatClawStore for PgBackend {
             .join(", ");
 
         let sql = format!(
-            "SELECT row_to_json(r) FROM (SELECT * FROM ag_catalog.cypher('threat_graph', $$ {} $$) AS ({})) r",
-            escaped, cols,
+            "SELECT row_to_json(r) FROM (SELECT * FROM ag_catalog.cypher('threat_graph', ${dq}$ {escaped} ${dq}$) AS ({cols})) r",
         );
 
         match conn.query(&*sql, &[]).await {
@@ -2922,16 +2947,13 @@ impl ThreatClawStore for PgBackend {
                 tags = (SELECT ARRAY(SELECT DISTINCT unnest(assets.tags || EXCLUDED.tags))),
                 last_seen = NOW(),
                 updated_at = NOW(),
-                -- inventory_status precedence (V67):
-                --   declared  > observed_persistent > observed_transient > inactive
-                -- Never demote, only promote. inactive → whatever the new signal
-                -- says (asset is back online).
+                -- inventory_status precedence (doctrine v2) :
+                --   declared > quarantine > inactive. Never demote a declared
+                --   asset (une source passive ne rétrograde jamais un asset
+                --   validé). Sinon on prend le signal entrant.
                 inventory_status = CASE
                     WHEN assets.inventory_status = 'declared'
                         THEN 'declared'
-                    WHEN assets.inventory_status = 'observed_persistent'
-                         AND EXCLUDED.inventory_status != 'declared'
-                        THEN 'observed_persistent'
                     ELSE EXCLUDED.inventory_status
                 END,
                 -- Notes: operator-only field. Apply the incoming value when
@@ -3109,6 +3131,59 @@ impl ThreatClawStore for PgBackend {
         .await
         .map_err(query_err)?;
         Ok(())
+    }
+
+    async fn adopt_assets(&self, ids: &[String]) -> Result<u64, DatabaseError> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let n = conn
+            .execute(
+                "UPDATE assets SET inventory_status = 'declared', updated_at = NOW() \
+                 WHERE id = ANY($1) AND inventory_status != 'declared'",
+                &[&ids],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
+    async fn adopt_rfc1918_quarantine(&self) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        // Regex sur le texte (pas de cast inet → pas d'échec sur un hostname) :
+        // 10.x, 172.16-31.x, 192.168.x.
+        let n = conn
+            .execute(
+                "UPDATE assets SET inventory_status = 'declared', updated_at = NOW() \
+                 WHERE inventory_status = 'quarantine' \
+                   AND EXISTS ( \
+                       SELECT 1 FROM unnest(ip_addresses) AS ip \
+                       WHERE ip ~ '^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.)' \
+                   )",
+                &[],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
+    }
+
+    async fn purge_stale_quarantine(&self, ttl_days: i64) -> Result<u64, DatabaseError> {
+        let conn = self.pool().get().await.map_err(pool_err)?;
+        let days = ttl_days.clamp(1, 3650) as i32;
+        // Hard delete : quarantine sans FK bloquant (sigma_alerts/ml_scores/findings
+        // sont keyés par hostname/texte, orphelins nettoyés par V86 ; tags/merge
+        // sont ON DELETE CASCADE). Les logs sont une table séparée → conservés.
+        let n = conn
+            .execute(
+                "DELETE FROM assets \
+                 WHERE inventory_status = 'quarantine' \
+                   AND last_seen < NOW() - make_interval(days => $1)",
+                &[&days],
+            )
+            .await
+            .map_err(query_err)?;
+        Ok(n)
     }
 
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
@@ -5364,7 +5439,7 @@ impl ThreatClawStore for PgBackend {
                 "WITH all_counts AS ( \
                     SELECT \
                         COUNT(*) FILTER (WHERE TRUE)                                                                               AS total, \
-                        COUNT(*) FILTER (WHERE inventory_status = 'observed_transient' AND distinct_days_seen_30d < 3)             AS discovered, \
+                        COUNT(*) FILTER (WHERE inventory_status = 'quarantine')                                                    AS discovered, \
                         COUNT(*) FILTER (WHERE inventory_status = 'inactive' OR last_seen <= NOW() - INTERVAL '30 days')           AS inactive, \
                         COUNT(*) FILTER (WHERE dedup_confidence = 'uncertain')                                                     AS uncertain, \
                         COUNT(*) FILTER (WHERE demo = true)                                                                        AS demo \
@@ -6906,5 +6981,29 @@ fn parse_asset_row(r: &tokio_postgres::Row) -> AssetRecord {
             .ok()
             .map(|dt| dt.to_rfc3339()),
         exclusion_by: r.try_get::<_, String>("exclusion_by").unwrap_or_default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::random_dollar_tag;
+
+    #[test]
+    fn dollar_tag_never_appears_in_body_and_defeats_injection() {
+        // Format attendu : `tc` + 18 hex.
+        let tag = random_dollar_tag("MATCH (n) RETURN n");
+        assert!(tag.starts_with("tc"));
+        assert_eq!(tag.len(), 2 + 18);
+        assert!(tag[2..].chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Régression CORE-H1 : une valeur attaquant contenant `$$` (breakout du
+        // dollar-quote fixe) ne doit pas contenir le tag aléatoire → impossible
+        // de refermer le quote et de tomber en SQL.
+        let malicious = "MERGE (u {name:'x$$) AS r; DROP TABLE assets; --'})";
+        let tag2 = random_dollar_tag(malicious);
+        assert!(!malicious.contains(&tag2));
+
+        // Deux appels → deux tags différents (aléatoire par appel).
+        assert_ne!(random_dollar_tag(""), random_dollar_tag(""));
     }
 }

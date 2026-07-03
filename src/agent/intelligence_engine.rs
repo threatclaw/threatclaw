@@ -800,6 +800,11 @@ pub enum AssetScope {
 
 /// `true` when the IPv4 falls in any RFC1918 private range
 /// (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
+///
+/// Doctrine v2 : ce n'est plus un critère de confiance (le fallback RFC1918 a
+/// été retiré de `classify_asset`). Conservé pour la future « suggestion
+/// d'adoption » (marquer un hôte privé observé comme candidat prioritaire).
+#[allow(dead_code)]
 fn is_rfc1918(ip: std::net::Ipv4Addr) -> bool {
     let o = ip.octets();
     o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168)
@@ -849,35 +854,42 @@ pub async fn classify_asset(
     if trimmed.is_empty() {
         return AssetScope::Unknown;
     }
-    // (1) Inventory lookups — id / hostname / IP all in turn. Each call is a
-    // single indexed query so it's cheap; we stop on the first hit.
-    if let Ok(Some(_)) = store.get_asset(trimmed).await {
-        return AssetScope::Monitored("declared_asset_id");
+    // (1) Inventory lookups — id / hostname / IP. Doctrine v2 : seul un asset
+    // **`declared`** (validé) est de confiance. Un asset en `quarantine`
+    // (observé, non validé) existe dans la table mais ne doit PAS escalader —
+    // il attend une adoption humaine. Chaque call est une requête indexée.
+    let is_declared = |a: &crate::db::threatclaw_store::AssetRecord| a.inventory_status == "declared";
+    if let Ok(Some(a)) = store.get_asset(trimmed).await {
+        if is_declared(&a) {
+            return AssetScope::Monitored("declared_asset_id");
+        }
     }
-    if let Ok(Some(_)) = store.find_asset_by_hostname(trimmed).await {
-        return AssetScope::Monitored("declared_asset_hostname");
+    if let Ok(Some(a)) = store.find_asset_by_hostname(trimmed).await {
+        if is_declared(&a) {
+            return AssetScope::Monitored("declared_asset_hostname");
+        }
     }
-    if let Ok(Some(_)) = store.find_asset_by_ip(trimmed).await {
-        return AssetScope::Monitored("declared_asset_ip");
+    if let Ok(Some(a)) = store.find_asset_by_ip(trimmed).await {
+        if is_declared(&a) {
+            return AssetScope::Monitored("declared_asset_ip");
+        }
     }
     // (2) Try parsing as IPv4 for the network-range checks.
     let ipv4 = match trimmed.parse::<std::net::Ipv4Addr>() {
         Ok(ip) => ip,
         Err(_) => return AssetScope::Unknown,
     };
-    // (3) Customer-declared networks.
+    // (3) Customer-declared networks (opérateur-déclarés → de confiance).
     for net in internal_networks {
         if cidr_contains_ipv4(&net.cidr, ipv4) {
             return AssetScope::Monitored("internal_network_match");
         }
     }
-    // (4) RFC1918 fallback. We always honour it on top of declared networks
-    // because clients usually start with private subnets and may forget to
-    // declare them; declaring the right subnet narrows the scope, never
-    // shrinks it below what private space already implies.
-    if is_rfc1918(ipv4) {
-        return AssetScope::Monitored("rfc1918_fallback");
-    }
+    // (4) Doctrine v2 (décision 1) : PLUS de fallback RFC1918 automatique. Un
+    // hôte privé non déclaré n'escalade pas — il vit en `quarantine` et remonte
+    // comme « à adopter » dans l'UI. L'opérateur l'adopte (en masse) → `declared`,
+    // ce qui active l'escalade. Ça évite qu'un flood syslog en 10.x/192.168.x
+    // crée des incidents sans validation humaine.
     AssetScope::External
 }
 
@@ -1401,7 +1413,7 @@ async fn fetch_asset_graph_context(
     if asset.is_empty() {
         return None;
     }
-    let escaped = asset.replace('\'', "\\'");
+    let escaped = asset.replace('\\', "\\\\").replace('\'', "\\'");
     let since = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
     // Apache AGE ne supporte pas la syntaxe variable-length avec union
     // de types `[:R1|R2*1..3]`. On enlève le calcul lateral_paths via

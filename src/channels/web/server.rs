@@ -1423,6 +1423,26 @@ pub async fn start_server(
         )
         // Endpoint agents (osquery-based)
         .route(
+            "/api/tc/agent/enroll",
+            post(super::handlers::threatclaw_api::agent_enroll_handler),
+        )
+        .route(
+            "/api/tc/agent/enroll-secret",
+            get(super::handlers::threatclaw_api::agent_enroll_secret_get_handler),
+        )
+        .route(
+            "/api/tc/agent/enroll-secret/rotate",
+            post(super::handlers::threatclaw_api::agent_enroll_secret_rotate_handler),
+        )
+        .route(
+            "/api/tc/assets/adopt",
+            post(super::handlers::threatclaw_api::assets_adopt_handler),
+        )
+        .route(
+            "/api/tc/assets/adopt-rfc1918",
+            post(super::handlers::threatclaw_api::assets_adopt_rfc1918_handler),
+        )
+        .route(
             "/api/tc/agent/manifest",
             get(super::handlers::threatclaw_api::agent_manifest_handler),
         )

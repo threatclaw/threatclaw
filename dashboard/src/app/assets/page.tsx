@@ -136,6 +136,8 @@ const EXTRA_FILTERS: Array<{
 
 const INVENTORY_BADGE: Record<string, { labelFr: string; labelEn: string; color: string }> = {
   declared: { labelFr: "Déclaré", labelEn: "Declared", color: "#30a050" },
+  quarantine: { labelFr: "Quarantaine", labelEn: "Quarantine", color: "#d09020" },
+  // legacy V67 (conservés pour une ligne non migrée) :
   observed_persistent: { labelFr: "Observé · réseau", labelEn: "Observed · network", color: "#4080d0" },
   observed_transient: { labelFr: "En observation", labelEn: "In observation", color: "#d09020" },
   inactive: { labelFr: "Inactif", labelEn: "Inactive", color: "#888" },
@@ -1252,6 +1254,30 @@ function AssetsPageInner() {
     loadData();
   };
 
+  // Doctrine v2 : adoption (quarantine → declared) — active détection/ML/incidents.
+  const onAdoptIds = async (ids: string[]) => {
+    if (!ids.length) return;
+    await fetch("/api/tc/assets/adopt", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).catch(() => {});
+    loadData();
+  };
+  const onAdoptRfc1918 = async () => {
+    const ok = window.confirm(
+      locale === "fr"
+        ? "Adopter tous les assets en quarantaine ayant une IP privée (RFC1918) ? Ils passeront en « déclaré » et seront surveillés."
+        : "Adopt all quarantine assets with a private (RFC1918) IP? They become 'declared' and monitored.",
+    );
+    if (!ok) return;
+    const res = await fetch("/api/tc/assets/adopt-rfc1918", { method: "POST" }).catch(() => null);
+    loadData();
+    if (res && res.ok) {
+      const j = await res.json().catch(() => null);
+      if (j) alert(locale === "fr" ? `${j.adopted} asset(s) adopté(s).` : `${j.adopted} asset(s) adopted.`);
+    }
+  };
+
   // Top-bar overflow menu (import / export / trash / refresh).
   const [overflowOpen, setOverflowOpen] = useState(false);
 
@@ -1427,6 +1453,8 @@ function AssetsPageInner() {
           onMergeIds={onMergeIds}
           onTrash={openDelete}
           onTrashIds={onTrashIds}
+          onAdoptIds={onAdoptIds}
+          onAdoptRfc1918={onAdoptRfc1918}
           onRefresh={loadData}
         />
       )}

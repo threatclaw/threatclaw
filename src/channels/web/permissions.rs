@@ -35,6 +35,7 @@ fn domain_of(path: &str) -> &str {
 /// carry their own `webhook_token`, validated by the core handler.
 fn is_machine(path: &str) -> bool {
     path.starts_with("/api/tc/webhook/ingest/")
+        || path == "/api/tc/agent/enroll"
         || path == "/api/tc/agent/manifest"
         || path == "/api/tc/agent/install.sh"
         || path == "/api/tc/agent/install.ps1"

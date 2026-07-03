@@ -1449,6 +1449,20 @@ pub trait ThreatClawStore: Send + Sync {
     /// a soft-deleted-but-not-blocked host reports again.
     async fn reactivate_asset(&self, id: &str) -> Result<(), DatabaseError>;
 
+    /// Doctrine v2 : adopter des assets (quarantine → declared). Idempotent —
+    /// ne touche que les lignes non déjà `declared`. Retourne le nombre adopté.
+    async fn adopt_assets(&self, ids: &[String]) -> Result<u64, DatabaseError>;
+
+    /// Adopter en masse tous les assets `quarantine` ayant au moins une IP
+    /// RFC1918 (bouton setup « adopter tout le RFC1918 observé »). Retourne le
+    /// nombre adopté.
+    async fn adopt_rfc1918_quarantine(&self) -> Result<u64, DatabaseError>;
+
+    /// Doctrine v2 : purge les candidats `quarantine` inactifs depuis > `ttl_days`
+    /// (défaut 40j). Retire la ligne d'asset (les logs restent selon rétention).
+    /// Retourne le nombre supprimé.
+    async fn purge_stale_quarantine(&self, ttl_days: i64) -> Result<u64, DatabaseError>;
+
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError>;
 
     async fn find_asset_by_ip(&self, ip: &str) -> Result<Option<AssetRecord>, DatabaseError>;

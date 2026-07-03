@@ -324,6 +324,15 @@ impl ThreatClawStore for LibSqlBackend {
     async fn reactivate_asset(&self, _: &str) -> Result<(), DatabaseError> {
         Err(not_supported())
     }
+    async fn adopt_assets(&self, _: &[String]) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn adopt_rfc1918_quarantine(&self) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
+    async fn purge_stale_quarantine(&self, _: i64) -> Result<u64, DatabaseError> {
+        Err(not_supported())
+    }
     async fn count_assets_by_category(&self) -> Result<Vec<(String, i64)>, DatabaseError> {
         Err(not_supported())
     }

@@ -30,6 +30,8 @@ interface Props {
   onMergeIds: (ids: string[]) => void;
   onTrash: (a: Asset) => void;
   onTrashIds: (ids: string[]) => void;
+  onAdoptIds: (ids: string[]) => void;
+  onAdoptRfc1918: () => void;
   onRefresh: () => void;
 }
 
@@ -84,7 +86,7 @@ type FlatRow =
   | { kind: "asset"; asset: Asset };
 
 export default function InventoryView(props: Props) {
-  const { assets, loading, locale, onEdit, onMergeIds, onTrash, onTrashIds, onRefresh } = props;
+  const { assets, loading, locale, onEdit, onMergeIds, onTrash, onTrashIds, onAdoptIds, onAdoptRfc1918, onRefresh } = props;
   const l = locale;
 
   const [view, setView] = useState<ViewState>(DEFAULT_VIEW);
@@ -92,6 +94,7 @@ export default function InventoryView(props: Props) {
   const [search, setSearch] = useState(""); // not persisted
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({}); // session-local
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [quarantineOnly, setQuarantineOnly] = useState(false); // doctrine v2 : vue candidats à adopter
   const [drawer, setDrawer] = useState<Asset | null>(null);
   const [openMenu, setOpenMenu] = useState<null | "filter" | "sort" | "group" | "cols">(null);
   const [tags, setTags] = useState<TagEntity[]>([]);
@@ -151,11 +154,25 @@ export default function InventoryView(props: Props) {
   }, []);
 
   // ── data pipeline ────────────────────────────────────────────────────────
+  // Doctrine v2 : assets observés non validés (à adopter). Comptés côté client.
+  const quarantineCount = useMemo(
+    () => assets.filter(a => a.inventory_status === "quarantine").length,
+    [assets],
+  );
+
+  // La quarantaine est un « ailleurs » : la liste par défaut ne montre QUE les
+  // assets non-quarantine ; l'onglet Quarantaine montre uniquement la quarantaine.
+  const base = useMemo(
+    () => assets.filter(a =>
+      quarantineOnly ? a.inventory_status === "quarantine" : a.inventory_status !== "quarantine"),
+    [assets, quarantineOnly],
+  );
+
   const typeCounts = useMemo(() => {
-    const c: Record<string, number> = { all: assets.length, srv: 0, pc: 0, net: 0, unk: 0 };
-    for (const a of assets) c[assetType(a.category)]++;
+    const c: Record<string, number> = { all: base.length, srv: 0, pc: 0, net: 0, unk: 0 };
+    for (const a of base) c[assetType(a.category)]++;
     return c;
-  }, [assets]);
+  }, [base]);
 
   const osOptions = useMemo(
     () => Array.from(new Set(assets.map(a => a.os).filter(Boolean) as string[])).sort(),
@@ -163,8 +180,8 @@ export default function InventoryView(props: Props) {
   );
 
   const filtered = useMemo(
-    () => assets.filter(a => passes(a, view.type, view.filters, search)),
-    [assets, view.type, view.filters, search],
+    () => base.filter(a => passes(a, view.type, view.filters, search)),
+    [base, view.type, view.filters, search],
   );
   const groups = useMemo(
     () => groupAssets(
@@ -329,6 +346,28 @@ export default function InventoryView(props: Props) {
           );
         })}
       </div>
+
+      {/* Quarantaine (doctrine v2 : candidats observés à adopter) */}
+      {quarantineCount > 0 && (
+        <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginBottom: "14px" }}>
+          <button onClick={() => setQuarantineOnly(v => !v)} style={{
+            ...ctrlBtn(quarantineOnly), padding: "7px 12px", borderRadius: "8px", fontWeight: 600,
+            borderColor: quarantineOnly ? "#d09020" : "var(--tc-border)",
+            color: quarantineOnly ? "#e0a030" : "var(--tc-text-sec)",
+          }}>
+            {fr(l) ? "Quarantaine" : "Quarantine"}{" "}
+            <span style={{ color: "#d09020", fontWeight: 700 }}>{quarantineCount}</span>
+          </button>
+          <span style={{ fontSize: "11px", color: "var(--tc-text-muted)" }}>
+            {fr(l)
+              ? "observés non validés — aucune détection/ML tant qu'ils ne sont pas adoptés"
+              : "observed, unvalidated — no detection/ML until adopted"}
+          </span>
+          <button style={{ ...ctrlBtn(false), marginLeft: "auto" }} onClick={() => onAdoptRfc1918()}>
+            {fr(l) ? "Adopter tout le RFC1918" : "Adopt all RFC1918"}
+          </button>
+        </div>
+      )}
 
       {/* Control bar */}
       <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "10px", position: "relative" }}>
@@ -523,6 +562,10 @@ export default function InventoryView(props: Props) {
           <span style={{ fontSize: "12.5px", color: "var(--tc-text)" }}>
             <b style={{ color: "var(--tc-blue)" }}>{selected.size}</b> {fr(l) ? "sélectionné·s" : "selected"}
           </span>
+          <button style={{ ...ctrlBtn(false), borderColor: "#d09020", color: "#e0a030" }}
+            onClick={() => { onAdoptIds(Array.from(selected)); setSelected(new Set()); }}>
+            <Check size={12} /> {fr(l) ? "Adopter" : "Adopt"}
+          </button>
           <button style={ctrlBtn(false)} onClick={bulkTag}><Plus size={12} /> {fr(l) ? "Ajouter un tag" : "Add a tag"}</button>
           <button style={ctrlBtn(false)} onClick={() => { onMergeIds(Array.from(selected)); setSelected(new Set()); }}>{fr(l) ? "Fusionner" : "Merge"}</button>
           <button style={ctrlBtn(false)} onClick={() => { onTrashIds(Array.from(selected)); setSelected(new Set()); }}><Trash2 size={12} /> {fr(l) ? "Corbeille" : "Trash"}</button>
