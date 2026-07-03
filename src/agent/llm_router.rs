@@ -634,15 +634,25 @@ impl LlmRouterConfig {
     }
 
     /// Vérifie si l'anonymisation est requise pour le cloud.
+    ///
+    /// Le niveau cloud L3 quitte TOUJOURS l'infrastructure : l'anonymisation est
+    /// systématique et non négociable (RÈGLE ABSOLUE #2). `CloudEscalation::Direct`
+    /// ne peut plus désactiver la protection — il ne règle que la politique
+    /// d'escalade, pas la fuite de données brutes vers le provider tiers.
     pub fn requires_anonymization(&self) -> bool {
-        self.cloud_escalation == CloudEscalation::Anonymized
+        true
     }
 
     /// Vérifie si l'anonymisation est requise pour l'IA principale.
-    /// Basé sur le flag `anonymize_primary` défini par l'utilisateur dans le wizard.
-    /// True = les données quittent l'infrastructure → anonymiser avant envoi.
+    ///
+    /// SÉCURITÉ (RÈGLE ABSOLUE #2) : la décision dérive de la DESTINATION, pas d'une
+    /// case à cocher. Dès que le backend principal n'est pas Ollama local
+    /// (`primary_uses_cloud_api()`), les données quittent l'infrastructure et
+    /// l'anonymisation est FORCÉE. Le flag `anonymize_primary` ne peut que
+    /// l'ACTIVER en plus (ex. Ollama hébergé sur un serveur distant), jamais la
+    /// retirer pour un backend cloud.
     pub fn primary_requires_anonymization(&self) -> bool {
-        self.anonymize_primary
+        self.primary_uses_cloud_api() || self.anonymize_primary
     }
 
     /// Vérifie si l'IA principale utilise une API cloud (pas Ollama local).
@@ -847,11 +857,49 @@ mod tests {
         };
         assert!(anon.requires_anonymization());
 
+        // SÉCURITÉ (RÈGLE #2) : même en mode Direct, le cloud est anonymisé.
+        // Le flag ne contrôle plus que la politique d'escalade, pas la fuite.
         let direct = LlmRouterConfig {
             cloud_escalation: CloudEscalation::Direct,
             ..Default::default()
         };
-        assert!(!direct.requires_anonymization());
+        assert!(direct.requires_anonymization());
+    }
+
+    #[test]
+    fn test_primary_anonymization_forced_for_cloud_backend() {
+        // Régression CORE-C1 : un backend cloud avec le flag laissé à false
+        // (défaut) ne doit JAMAIS envoyer de données brutes. L'anonymisation
+        // est forcée par la destination.
+        let cloud_no_flag = LlmRouterConfig {
+            primary: PrimaryLlmConfig {
+                backend: "anthropic".to_string(),
+                model: "claude-sonnet-4-20250514".to_string(),
+                base_url: "https://api.anthropic.com".to_string(),
+                api_key: Some("sk-test".to_string()),
+            },
+            anonymize_primary: false, // défaut — la faille d'origine
+            ..Default::default()
+        };
+        assert!(cloud_no_flag.primary_uses_cloud_api());
+        assert!(cloud_no_flag.primary_requires_anonymization());
+
+        // openai_compatible est routé via cloud_caller → également forcé.
+        let compat_no_flag = LlmRouterConfig {
+            primary: PrimaryLlmConfig {
+                backend: "openai_compatible".to_string(),
+                model: "m".to_string(),
+                base_url: "http://localhost:8000".to_string(),
+                api_key: None,
+            },
+            anonymize_primary: false,
+            ..Default::default()
+        };
+        assert!(compat_no_flag.primary_requires_anonymization());
+
+        // Ollama local sans flag → pas d'anonymisation (données restent locales).
+        let local = LlmRouterConfig::default();
+        assert!(!local.primary_requires_anonymization());
     }
 
     #[test]

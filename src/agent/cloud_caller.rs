@@ -420,6 +420,83 @@ impl Default for AnonymizationMap {
     }
 }
 
+/// Un identifiant d'inventaire est-il assez « host-like » pour un remplacement
+/// exact-match sûr (zéro faux positif) ? On évite les noms génériques à espaces
+/// (« Serveur de fichiers ») et les valeurs trop courtes / purement numériques.
+fn looks_like_host(s: &str) -> bool {
+    let s = s.trim();
+    if s.len() < 3 || s.contains(char::is_whitespace) {
+        return false;
+    }
+    let mut has_alpha = false;
+    for c in s.chars() {
+        if c.is_ascii_alphabetic() {
+            has_alpha = true;
+        } else if !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')) {
+            return false;
+        }
+    }
+    has_alpha // rejette le tout-numérique (déjà couvert par la regex IP)
+}
+
+/// Construit une `AnonymizationMap` prête à l'emploi, chargée depuis la base :
+///  - **Règles custom RSSI** (table `anonymizer_rules`, éditées dans le dashboard) —
+///    corrige le fait qu'elles n'étaient jamais appliquées (l'UI était un no-op).
+///  - **Identités d'inventaire** (hostname / fqdn / nom d'asset host-like) converties
+///    en règles exact-match insensibles à la casse — couvre les noms Windows (`DC01`,
+///    `PARIS-DC`) et FQDN que la regex de forme rate, sans risque de faux positif.
+///
+/// À utiliser à la place de `AnonymizationMap::new()` sur tous les chemins qui
+/// envoient des données vers un LLM hors infrastructure.
+pub async fn build_anon_map(store: &dyn crate::db::Database) -> AnonymizationMap {
+    let mut rules: Vec<CustomAnonymizationRule> = Vec::new();
+
+    // 1) Règles définies par le RSSI dans le dashboard.
+    if let Ok(rows) = store.list_anonymizer_rules().await {
+        for r in rows {
+            let pattern = r["pattern"].as_str().unwrap_or("");
+            if pattern.is_empty() {
+                continue;
+            }
+            rules.push(CustomAnonymizationRule {
+                label: r["label"].as_str().unwrap_or("custom").to_string(),
+                pattern: pattern.to_string(),
+                token_prefix: r["token_prefix"].as_str().unwrap_or("CUSTOM").to_string(),
+                capture_group: r["capture_group"].as_u64().unwrap_or(0) as usize,
+            });
+        }
+    }
+
+    // 2) Inventaire des assets → exact-match (insensible à la casse).
+    //    On borne à un plafond raisonnable ; au-delà, la regex de forme reste le filet.
+    if let Ok(assets) = store.list_assets(None, Some("active"), 5000, 0).await {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for a in &assets {
+            let mut candidates: Vec<&str> = Vec::new();
+            if let Some(h) = a.hostname.as_deref() {
+                candidates.push(h);
+            }
+            if let Some(f) = a.fqdn.as_deref() {
+                candidates.push(f);
+            }
+            candidates.push(a.name.as_str());
+            for cand in candidates {
+                let key = cand.to_ascii_lowercase();
+                if looks_like_host(cand) && seen.insert(key) {
+                    rules.push(CustomAnonymizationRule {
+                        label: "asset-inventory".to_string(),
+                        pattern: format!(r"(?i)\b{}\b", regex::escape(cand.trim())),
+                        token_prefix: "HOST".to_string(),
+                        capture_group: 0,
+                    });
+                }
+            }
+        }
+    }
+
+    AnonymizationMap::with_custom_rules(rules)
+}
+
 /// Appelle une API cloud LLM.
 pub async fn call_cloud_llm(
     config: &CloudLlmConfig,
@@ -834,6 +911,47 @@ mod tests {
         assert!(cats.contains(&"IP".to_string()));
         assert!(cats.contains(&"EMAIL".to_string()));
         assert!(cats.contains(&"MAC".to_string()));
+    }
+
+    #[test]
+    fn test_looks_like_host() {
+        assert!(looks_like_host("DC01"));
+        assert!(looks_like_host("PARIS-DC"));
+        assert!(looks_like_host("srv-finance-01"));
+        assert!(looks_like_host("dc01.corp.local"));
+        assert!(looks_like_host("host_a"));
+        // Rejets : trop court, espaces, tout-numérique, caractères exotiques.
+        assert!(!looks_like_host("PC"));
+        assert!(!looks_like_host("Serveur de fichiers"));
+        assert!(!looks_like_host("192"));
+        assert!(!looks_like_host("12345"));
+        assert!(!looks_like_host("a b"));
+    }
+
+    #[test]
+    fn test_inventory_rule_anonymizes_windows_hostname() {
+        // Régression F3 : un nom Windows (DC01, PARIS-DC) que la regex de forme
+        // rate est anonymisé via une règle exact-match d'inventaire (insensible
+        // à la casse), sans faux positif.
+        let rules = vec![
+            CustomAnonymizationRule {
+                label: "asset-inventory".to_string(),
+                pattern: r"(?i)\bDC01\b".to_string(),
+                token_prefix: "HOST".to_string(),
+                capture_group: 0,
+            },
+            CustomAnonymizationRule {
+                label: "asset-inventory".to_string(),
+                pattern: r"(?i)\bPARIS-DC\b".to_string(),
+                token_prefix: "HOST".to_string(),
+                capture_group: 0,
+            },
+        ];
+        let mut map = AnonymizationMap::with_custom_rules(rules);
+        let out = map.anonymize("Logon 4625 on dc01 from PARIS-DC controller");
+        assert!(!out.to_lowercase().contains("dc01"));
+        assert!(!out.contains("PARIS-DC"));
+        assert!(out.contains("[HOST-"));
     }
 
     #[tokio::test]

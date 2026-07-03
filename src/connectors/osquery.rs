@@ -15,56 +15,14 @@ use serde::{Deserialize, Serialize};
 // ── Agent authentication ──
 // See ADR-044: Communication agent → TC sécurisée
 //
-// Couche 1 : Webhook token HMAC (vérifié par webhook_ingest.rs avant d'arriver ici)
-// Couche 2 : Agent ID vérifié contre la liste des agents enregistrés
+// Couche 1 : token PAR-AGENT (émis à l'enrôlement, vérifié par webhook_ingest.rs)
+// Couche 2 : binding strict (agent_id, hostname) contre le registre d'enrôlement
+//            — cf. `crate::connectors::agent_identity::verify_agent_binding`
 // Couche 3 : TLS obligatoire (HTTPS entre l'agent et TC)
 //
-// L'agent s'enregistre au premier contact. TC stocke son ID + hostname.
-// Les messages suivants sont vérifiés : agent_id doit matcher le hostname.
-
-/// Verify agent identity. Returns true if agent is known or newly registered.
-pub async fn verify_or_register_agent(
-    store: &dyn Database,
-    agent_id: &str,
-    hostname: &str,
-) -> bool {
-    if agent_id.is_empty() {
-        return true;
-    } // Pas d'agent_id = mode webhook legacy
-
-    let key = format!("agent_{}", agent_id);
-    if let Ok(Some(registered)) = store.get_setting("_osquery_agents", &key).await {
-        // Agent connu — vérifier que le hostname matche
-        let registered_host = registered["hostname"].as_str().unwrap_or("");
-        if registered_host != hostname && !registered_host.is_empty() {
-            tracing::warn!(
-                "OSQUERY: Agent {} hostname mismatch: registered={}, received={}",
-                agent_id,
-                registered_host,
-                hostname
-            );
-            return false;
-        }
-        true
-    } else {
-        // Nouvel agent — enregistrer
-        crate::connectors::log_db_write(
-            "osquery:set_setting",
-            store.set_setting(
-                "_osquery_agents",
-                &key,
-                &serde_json::json!({
-                    "hostname": hostname,
-                    "registered_at": chrono::Utc::now().to_rfc3339(),
-                    "last_seen": chrono::Utc::now().to_rfc3339(),
-                }),
-            ),
-        )
-        .await;
-        tracing::info!("OSQUERY: New agent registered: {} ({})", agent_id, hostname);
-        true
-    }
-}
+// L'ancien modèle (token de flotte partagé + TOFU sur agent_id auto-asserté) a
+// été remplacé par un enrôlement par-agent (findings ING-C1 / H6 de l'audit
+// écosystème 2026-07-02). La vérification vit désormais dans `agent_identity`.
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OsqueryConfig {
@@ -1138,9 +1096,11 @@ pub async fn process_osquery_webhook(
         errors: vec![],
     };
 
-    // Verify agent identity (couche 2 — HMAC token is couche 1, checked by webhook_ingest)
+    // Vérification stricte de l'identité (couche 2). Le couple (agent_id, hostname)
+    // doit correspondre à un agent enrôlé, non révoqué — sinon fail-closed. Met à
+    // jour last_seen en interne (en préservant le token). Voir agent_identity.
     let agent_id = body["agent_id"].as_str().unwrap_or("");
-    if !verify_or_register_agent(store, agent_id, hostname).await {
+    if !crate::connectors::agent_identity::verify_agent_binding(store, agent_id, hostname).await {
         result
             .errors
             .push("Agent identity verification failed".into());
@@ -1188,22 +1148,7 @@ pub async fn process_osquery_webhook(
         );
     }
 
-    // Update last_seen for this agent
-    if !agent_id.is_empty() {
-        let key = format!("agent_{}", agent_id);
-        crate::connectors::log_db_write(
-            "osquery:set_setting",
-            store.set_setting(
-                "_osquery_agents",
-                &key,
-                &serde_json::json!({
-                    "hostname": hostname,
-                    "last_seen": chrono::Utc::now().to_rfc3339(),
-                }),
-            ),
-        )
-        .await;
-    }
+    // (last_seen est mis à jour par verify_agent_binding, en préservant le token.)
 
     // If the agent flagged any source as truncated (it hit its per-cycle event
     // cap), raise a finding — a flood is a signal (possible evasion / T1562),

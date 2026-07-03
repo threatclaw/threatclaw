@@ -15,6 +15,9 @@ set -euo pipefail
 # ── Defaults ──
 TC_URL="${TC_URL:-}"
 TC_TOKEN="${TC_TOKEN:-}"
+# Secret d'enrôlement par-agent (recommandé). Si présent, le poste s'enrôle et
+# reçoit un token UNIQUE lié à son identité — plus de token de flotte partagé.
+TC_ENROLL_SECRET="${TC_ENROLL_SECRET:-}"
 AGENT_ID=""
 # We don't pin osquery's version: pkg.osquery.io only keeps the latest in its
 # apt/yum repos, so a `=5.12.1-*` pin breaks the install entirely the day
@@ -36,12 +39,15 @@ info() { echo -e "${BLUE}[ThreatClaw Agent]${NC} $*"; }
 # ── Parse args ──
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --url)        TC_URL="$2"; shift 2 ;;
-    --token)      TC_TOKEN="$2"; shift 2 ;;
-    --token-file) TC_TOKEN="$(cat "$2")"; shift 2 ;;
-    --id)         AGENT_ID="$2"; shift 2 ;;
+    --url)                 TC_URL="$2"; shift 2 ;;
+    --token)               TC_TOKEN="$2"; shift 2 ;;
+    --token-file)          TC_TOKEN="$(cat "$2")"; shift 2 ;;
+    --enroll-secret)       TC_ENROLL_SECRET="$2"; shift 2 ;;
+    --enroll-secret-file)  TC_ENROLL_SECRET="$(cat "$2")"; shift 2 ;;
+    --id)                  AGENT_ID="$2"; shift 2 ;;
     --help)
-      echo "Usage: install-agent.sh --url https://TC:8445 --token TOKEN [--id AGENT_ID]"
+      echo "Usage: install-agent.sh --url https://TC:8445 --enroll-secret SECRET"
+      echo "   (legacy) install-agent.sh --url https://TC:8445 --token TOKEN [--id AGENT_ID]"
       exit 0 ;;
     *) shift ;;
   esac
@@ -53,8 +59,10 @@ if [ -z "$TC_URL" ]; then
   exit 1
 fi
 
-if [ -z "$TC_TOKEN" ]; then
-  warn "Missing --token (webhook token from ThreatClaw dashboard)"
+if [ -z "$TC_ENROLL_SECRET" ] && [ -z "$TC_TOKEN" ]; then
+  warn "Missing --enroll-secret (recommended) or --token"
+  echo "Get the enrollment secret from the ThreatClaw dashboard (Agents), then:"
+  echo "  curl -fsSL get.threatclaw.io/agent | sudo bash -s -- --url https://TC_IP:8445 --enroll-secret SECRET"
   exit 1
 fi
 
@@ -75,32 +83,79 @@ fi
 # instead of leaving a half-configured agent that silently never reports.
 # -k matches the sync script (self-signed cert); this checks reachability +
 # token, not cert validity.
-info "Pre-flight: checking connection and token at $TC_URL ..."
-if [ -n "${TC_SKIP_PREFLIGHT:-}" ]; then
-  # Escape hatch: bypass the pre-flight (e.g. an unusual proxy it can't see
-  # through). The first sync remains the real test.
-  warn "Pre-flight SKIPPED (TC_SKIP_PREFLIGHT set) — proceeding without checking."
-  ping_code="skip"; ping_body=""
+TC_CREDS="/etc/threatclaw-agent/agent.env"
+if [ -n "$TC_ENROLL_SECRET" ]; then
+  # ── Enrôlement par-agent (idempotent) ──
+  # Le poste s'enrôle et reçoit un token UNIQUE lié à son agent_id (généré côté
+  # serveur) et son hostname. Remplace le token de flotte partagé (findings
+  # ING-C1/H6). L'enrôlement fait aussi office de pré-flight : un succès prouve
+  # la joignabilité ET la validité du secret. -k = cert self-signed.
+  #
+  # IDEMPOTENCE (déploiement GPO / ré-exécution) : si le poste possède déjà des
+  # identifiants enrôlés (fichier root-only $TC_CREDS), on les RÉUTILISE au lieu
+  # de créer une nouvelle identité à chaque exécution. TC_FORCE_ENROLL=1 force un
+  # nouvel enrôlement (rotation d'identité).
+  need_enroll=1
+  if [ -z "${TC_FORCE_ENROLL:-}" ] && [ -f "$TC_CREDS" ]; then
+    # shellcheck disable=SC1090
+    . "$TC_CREDS" 2>/dev/null || true
+    if [ -n "${AGENT_ID:-}" ] && [ -n "${TC_TOKEN:-}" ]; then
+      need_enroll=0
+      log "Already enrolled — reusing identity agent_id=$AGENT_ID (set TC_FORCE_ENROLL=1 to re-enroll)"
+    fi
+  fi
+  if [ "$need_enroll" = "1" ]; then
+    info "Enrolling this host with ThreatClaw at $TC_URL ..."
+    enroll_hostname="$(hostname -s)"
+    enroll_resp=$(curl -sk --max-time 15 -w '\n%{http_code}' \
+      -X POST -H "X-Enroll-Secret: $TC_ENROLL_SECRET" -H "Content-Type: application/json" \
+      --data "{\"hostname\":\"${enroll_hostname}\",\"platform\":\"linux\"}" \
+      "${TC_URL}/api/tc/agent/enroll" 2>/dev/null)
+    enroll_code=$(printf '%s' "$enroll_resp" | tail -n1)
+    enroll_body=$(printf '%s' "$enroll_resp" | sed '$d')
+    [ -n "${TC_DEBUG:-}" ] && info "DEBUG enroll: code=$enroll_code body=$enroll_body"
+    if [ "$enroll_code" = "401" ]; then
+      warn "Enrollment refused — invalid enroll secret (Dashboard > Agents). Nothing was installed."; exit 1
+    elif [ -z "$enroll_code" ] || [ "$enroll_code" = "000" ]; then
+      warn "Cannot reach ThreatClaw at $TC_URL — check the URL and PORT (often :8445, not 443) and any firewall. Nothing was installed."; exit 1
+    fi
+    # Parse per-key (order-independent, no jq dependency).
+    AGENT_ID=$(printf '%s' "$enroll_body" | sed -n 's/.*"agent_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    TC_TOKEN=$(printf '%s' "$enroll_body" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ -z "$AGENT_ID" ] || [ -z "$TC_TOKEN" ]; then
+      warn "Enrollment response invalid (no agent_id/token): $enroll_body. Nothing was installed."; exit 1
+    fi
+    # Persiste l'identité (root-only 0600) → idempotence des ré-exécutions.
+    ( umask 077; mkdir -p /etc/threatclaw-agent && \
+      printf 'AGENT_ID=%s\nTC_TOKEN=%s\n' "$AGENT_ID" "$TC_TOKEN" > "$TC_CREDS" )
+    chmod 700 /etc/threatclaw-agent 2>/dev/null || true
+    chmod 600 "$TC_CREDS" 2>/dev/null || true
+    log "Enrolled — agent_id=$AGENT_ID (per-agent token issued)"
+  fi
 else
-  ping_resp=$(curl -sk --max-time 10 -w '\n%{http_code}' \
-    -X POST -H "X-Webhook-Token: $TC_TOKEN" \
-    "${TC_URL}/api/tc/webhook/ping/osquery" 2>/dev/null)
-  ping_code=$(printf '%s' "$ping_resp" | tail -n1)
-  ping_body=$(printf '%s' "$ping_resp" | sed '$d')
-fi
-[ -n "${TC_DEBUG:-}" ] && info "DEBUG pre-flight: code=$ping_code body=$ping_body"
-# Decide ONLY on our `tc_preflight` body marker, never on the HTTP status — auth
-# middleware, proxies and WAFs inject their own codes (a server without this
-# endpoint returns 401; a WAF may return 403). Only an explicit bad_token from our
-# endpoint aborts on the token; only total unreachability aborts on connectivity.
-if printf '%s' "$ping_body" | grep -q 'bad_token'; then
-  warn "Server reachable but the webhook token is INVALID — check the token (Dashboard > Skills > Osquery). Nothing was installed."; exit 1
-elif [ -z "$ping_code" ] || [ "$ping_code" = "000" ]; then
-  warn "Cannot reach ThreatClaw at $TC_URL — check the URL and PORT (often :8445, not 443) and any firewall between this host and the server. Nothing was installed."; exit 1
-elif printf '%s' "$ping_body" | grep -q '"tc_preflight":"ok"'; then
-  log "Pre-flight OK — server reachable and token valid"
-else
-  warn "Server reachable; token check inconclusive — proceeding (the first sync is the real test)."
+  # ── Legacy : token de flotte partagé (déprécié — sera rejeté par la vérif
+  #    stricte côté serveur tant que le poste n'est pas enrôlé). ──
+  info "Pre-flight (legacy token): checking connection at $TC_URL ..."
+  if [ -n "${TC_SKIP_PREFLIGHT:-}" ]; then
+    warn "Pre-flight SKIPPED (TC_SKIP_PREFLIGHT set) — proceeding without checking."
+    ping_code="skip"; ping_body=""
+  else
+    ping_resp=$(curl -sk --max-time 10 -w '\n%{http_code}' \
+      -X POST -H "X-Webhook-Token: $TC_TOKEN" \
+      "${TC_URL}/api/tc/webhook/ping/osquery" 2>/dev/null)
+    ping_code=$(printf '%s' "$ping_resp" | tail -n1)
+    ping_body=$(printf '%s' "$ping_resp" | sed '$d')
+  fi
+  [ -n "${TC_DEBUG:-}" ] && info "DEBUG pre-flight: code=$ping_code body=$ping_body"
+  if printf '%s' "$ping_body" | grep -q 'bad_token'; then
+    warn "Server reachable but the webhook token is INVALID. Nothing was installed."; exit 1
+  elif [ -z "$ping_code" ] || [ "$ping_code" = "000" ]; then
+    warn "Cannot reach ThreatClaw at $TC_URL — check the URL and PORT and any firewall. Nothing was installed."; exit 1
+  elif printf '%s' "$ping_body" | grep -q '"tc_preflight":"ok"'; then
+    log "Pre-flight OK — server reachable and token valid"
+  else
+    warn "Server reachable; token check inconclusive — proceeding (the first sync is the real test)."
+  fi
 fi
 
 # ── Detect OS ──
@@ -427,7 +482,7 @@ PYEOF
 # Negotiate gzip: only compress if the server advertises accepts_gzip in its
 # manifest (version-skew safe). Substring match avoids a jq dependency.
 TC_ACCEPTS_GZIP=false
-MANIFEST=\$(curl -fsSL -k --max-time 10 -H "X-Webhook-Token: \$TC_TOKEN" \\
+MANIFEST=\$(curl -fsSL -k --max-time 10 -H "X-Webhook-Token: \$TC_TOKEN" -H "X-Agent-Id: \$AGENT_ID" \\
   "\${TC_URL}/api/tc/agent/manifest?platform=linux&token=\$TC_TOKEN" 2>/dev/null || echo "")
 case "\$MANIFEST" in
   *'"accepts_gzip":true'*|*'"accepts_gzip": true'*) TC_ACCEPTS_GZIP=true ;;
@@ -448,6 +503,7 @@ fi
 TC_HTTP=\$(curl -sk -o /dev/null -w '%{http_code}' -X POST \\
   -H "Content-Type: application/json" \\
   -H "X-Webhook-Token: \$TC_TOKEN" \\
+  -H "X-Agent-Id: \$AGENT_ID" \\
   \$TC_ENC_HEADER \\
   --data-binary @"\$TC_PAYLOAD" \\
   --max-time 120 \\

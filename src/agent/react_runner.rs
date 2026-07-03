@@ -220,9 +220,18 @@ pub async fn run_react_cycle(
         prompt_builder::build_react_prompt(&soul, &mode_cfg, &obs, &empty_entries, &lang)
     };
 
-    // Si les données quittent l'infra, anonymiser avant envoi
+    // Si les données quittent l'infra, anonymiser avant envoi.
+    // Le gabarit d'anonymisation (règles RSSI + inventaire d'assets) est construit
+    // une fois puis cloné à chaque étage (L1/L2/L3) — chaque clone accumule ses
+    // propres mappings pour son prompt. On ne touche la base que si une sortie hors
+    // infra est possible (backend cloud OU escalade cloud disponible).
     let anonymize_primary = config.llm.primary_requires_anonymization();
-    let mut primary_anon_map = AnonymizationMap::new();
+    let anon_template = if anonymize_primary || config.llm.cloud_available() {
+        cloud_caller::build_anon_map(store.as_ref()).await
+    } else {
+        AnonymizationMap::new()
+    };
+    let mut primary_anon_map = anon_template.clone();
     let prompt_l1 = if anonymize_primary {
         let anonymized = primary_anon_map.anonymize(&prompt_l1_raw);
         tracing::info!(
@@ -398,7 +407,7 @@ pub async fn run_react_cycle(
 
         // Anonymiser L2 si données quittent l'infra
         let enriched_prompt = if anonymize_primary {
-            let mut l2_anon = AnonymizationMap::new();
+            let mut l2_anon = anon_template.clone();
             let anon = l2_anon.anonymize(&enriched_prompt_raw);
             tracing::info!(
                 "REACT L2: Anonymized {} data points",
@@ -492,7 +501,7 @@ pub async fn run_react_cycle(
     );
 
     // Anonymiser le prompt (utiliser prompt_l1_raw pour éviter la double-anonymisation)
-    let mut anon_map = AnonymizationMap::new();
+    let mut anon_map = anon_template.clone();
     let cloud_prompt = if config.llm.requires_anonymization() {
         let anonymized = anon_map.anonymize(&prompt_l1_raw);
         tracing::info!(

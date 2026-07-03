@@ -9,9 +9,10 @@
 # Installs osquery, configures scheduled queries, creates sync task (5min).
 
 param(
-    [string]$Url     = $env:TC_URL,
-    [string]$Token   = $env:TC_TOKEN,
-    [string]$AgentId = ""
+    [string]$Url          = $env:TC_URL,
+    [string]$Token        = $env:TC_TOKEN,
+    [string]$EnrollSecret = $env:TC_ENROLL_SECRET,
+    [string]$AgentId      = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -67,8 +68,8 @@ Write-Host ""
 if (-not $Url) {
     Write-TCError "Missing -Url (or set env:TC_URL before running)"
 }
-if (-not $Token) {
-    Write-TCError "Missing -Token (or set env:TC_TOKEN). Get it from ThreatClaw Dashboard > Skills > Osquery."
+if ((-not $EnrollSecret) -and (-not $Token)) {
+    Write-TCError "Missing -EnrollSecret (recommended) or -Token. Get the enrollment secret from ThreatClaw Dashboard > Agents."
 }
 
 # Generate agent ID from hostname if not provided
@@ -103,8 +104,60 @@ public class TcPreflightCertPolicy : ICertificatePolicy {
 } catch { }
 try { [Net.ServicePointManager]::CertificatePolicy = New-Object TcPreflightCertPolicy } catch { }
 
+$enrolled = $false
+$CredFile = "C:\ProgramData\ThreatClaw\agent.cred"
+if ($EnrollSecret) {
+    # Enrôlement par-agent (idempotent). token UNIQUE lié à l'agent_id (généré
+    # serveur) + hostname. Remplace le token de flotte partagé (findings ING-C1/H6).
+    # Fait office de pré-flight. IDEMPOTENCE (déploiement GPO / ré-exécution) : si
+    # des identifiants enrôlés existent déjà ($CredFile), on les RÉUTILISE au lieu
+    # de créer une nouvelle identité à chaque run. $env:TC_FORCE_ENROLL=1 force un
+    # nouvel enrôlement (rotation d'identité).
+    if ((-not $env:TC_FORCE_ENROLL) -and (Test-Path $CredFile)) {
+        try {
+            $c = Get-Content -Raw $CredFile | ConvertFrom-Json
+            if ($c.agent_id -and $c.token) {
+                $AgentId  = $c.agent_id
+                $Token    = $c.token
+                $enrolled = $true
+                Write-TC "Already enrolled - reusing identity agent_id=$AgentId (set TC_FORCE_ENROLL=1 to re-enroll)"
+            }
+        } catch { }
+    }
+    if (-not $enrolled) {
+        Write-TC "Enrolling this host with ThreatClaw at $Url ..."
+        $enrollBody = @{ hostname = $env:COMPUTERNAME; platform = "windows" } | ConvertTo-Json -Compress
+        try {
+            $er = Invoke-RestMethod -Uri "$Url/api/tc/agent/enroll" -Method Post `
+                -Headers @{ "X-Enroll-Secret" = $EnrollSecret; "Content-Type" = "application/json" } `
+                -Body $enrollBody -TimeoutSec 15
+            if ($er.agent_id -and $er.token) {
+                $AgentId  = $er.agent_id
+                $Token    = $er.token
+                $enrolled = $true
+                # Persiste l'identité (ACL SYSTEM+Administrators) → idempotence.
+                New-Item -ItemType Directory -Force -Path (Split-Path $CredFile) | Out-Null
+                @{ agent_id = $AgentId; token = $Token } | ConvertTo-Json -Compress | Set-Content -Path $CredFile -Encoding UTF8
+                try { icacls $CredFile /inheritance:r /grant:r "SYSTEM:F" "BUILTIN\Administrators:F" | Out-Null } catch { }
+                Write-TC "Enrolled - agent_id=$AgentId (per-agent token issued)"
+            } else {
+                Write-TCError "Enrollment response invalid (no agent_id/token). Nothing was installed."
+            }
+        } catch {
+            $code = $null
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            if ($code -eq 401) {
+                Write-TCError "Enrollment refused - invalid enroll secret (Dashboard > Agents). Nothing was installed."
+            } else {
+                Write-TCError "Cannot reach ThreatClaw at $Url or enrollment failed ($code). Check URL/PORT/firewall. Nothing was installed."
+            }
+        }
+    }
+}
+
 $tcReachable = $false
 $tcBody = ""
+if (-not $enrolled) {
 if ($env:TC_SKIP_PREFLIGHT) {
     # Escape hatch: bypass the pre-flight entirely (e.g. an unusual proxy the
     # check can't see through). The first sync remains the real test.
@@ -141,6 +194,7 @@ if ($tcBody -match 'bad_token') {
     Write-TC "Pre-flight OK - server reachable and token valid"
 } else {
     Write-TC "Pre-flight: server reachable; token check inconclusive - proceeding" -Color Yellow
+}
 }
 Write-Host ""
 
@@ -643,7 +697,7 @@ $manifestExtras = ""
 $acceptsGzip = $false   # only gzip if the server advertised it (version-skew safe)
 try {
     $manifestUri = "${TC_URL}/api/tc/agent/manifest?platform=windows&token=${TC_TOKEN}"
-    $manifest = Invoke-RestMethod -Uri $manifestUri -Method GET -Headers @{"X-Webhook-Token" = $TC_TOKEN} -TimeoutSec 10
+    $manifest = Invoke-RestMethod -Uri $manifestUri -Method GET -Headers @{"X-Webhook-Token" = $TC_TOKEN; "X-Agent-Id" = $AGENT_ID} -TimeoutSec 10
     if ($manifest) { $acceptsGzip = [bool]$manifest.accepts_gzip }
     if ($manifest -and $manifest.queries) {
         Write-Log "Manifest fetched, version=$($manifest.version), $($manifest.queries.Count) extra queries"
@@ -683,6 +737,7 @@ try {
     $headers = @{
         "Content-Type"    = "application/json"
         "X-Webhook-Token" = $TC_TOKEN
+        "X-Agent-Id"      = $AGENT_ID
     }
     $uri = "${TC_URL}/api/tc/webhook/ingest/osquery?token=${TC_TOKEN}"
     $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
