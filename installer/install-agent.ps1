@@ -92,17 +92,30 @@ Write-Host ""
 # 443) or a bad token never leaves a half-configured agent that silently fails.
 Write-TC "Pre-flight: checking connection and token at $Url ..."
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-# Self-signed cert: skip validation for the check (same policy as the sync script).
+# FRONT-C1 : le bypass de validation TLS est SCOPÉ au seul serveur TC (cert
+# self-signed). TOUS les autres téléchargements (MSI osquery, Sysmon, GitHub)
+# sont validés normalement contre les CA publiques — sinon un attaquant on-path
+# pourrait servir un MSI piégé, exécuté ensuite en SYSTEM par msiexec.
 try {
     Add-Type -TypeDefinition @"
+using System;
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
 public class TcPreflightCertPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
+    public static string TcHost = "";
+    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) {
+        if (req != null && req.RequestUri != null &&
+            string.Equals(req.RequestUri.Host, TcHost, StringComparison.OrdinalIgnoreCase))
+            return true;            // serveur TC self-signed : bypass ciblé
+        return problem == 0;        // tout le reste : validation stricte
+    }
 }
 "@
 } catch { }
-try { [Net.ServicePointManager]::CertificatePolicy = New-Object TcPreflightCertPolicy } catch { }
+try {
+    [TcPreflightCertPolicy]::TcHost = ([Uri]$Url).Host
+    [Net.ServicePointManager]::CertificatePolicy = New-Object TcPreflightCertPolicy
+} catch { }
 
 $enrolled = $false
 $CredFile = "C:\ProgramData\ThreatClaw\agent.cred"
@@ -218,6 +231,19 @@ if (Test-Path $OsqueryBin) {
         Write-TCError "Failed to download osquery from $msiUrl"
     }
 
+    # FRONT-C1 : vérifier la signature Authenticode du MSI AVANT de l'exécuter en
+    # SYSTEM. Un MSI servi par un MITM n'aura pas de signature valide chaînée à une
+    # CA de confiance. Plus robuste qu'un hash figé (survit aux rotations de version
+    # osquery). Override possible via TC_SKIP_SIG_CHECK (à tes risques).
+    if (-not $env:TC_SKIP_SIG_CHECK) {
+        $sig = Get-AuthenticodeSignature $msiPath
+        if ($sig.Status -ne 'Valid') {
+            Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
+            Write-TCError "osquery MSI: signature Authenticode INVALIDE ($($sig.Status)) — possible MITM. Rien n'a ete installe. (TC_SKIP_SIG_CHECK=1 pour forcer)"
+        }
+        Write-TC "osquery MSI signature verifiee ($($sig.SignerCertificate.Subject))"
+    }
+
     Write-TC "Running MSI installer (silent)..."
     $proc = Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /qn /norestart" -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
@@ -300,7 +326,19 @@ if ($sysmonSvc -or (Test-Path $SysmonBin)) {
         try {
             Expand-ZipCompat -Zip $zipPath -Dest $extractDir
             $sysmonExe = Join-Path $extractDir "Sysmon64.exe"
-            if (Test-Path $sysmonExe) {
+            $sysmonOk = Test-Path $sysmonExe
+            # FRONT-C1 : Sysmon64.exe est signé Microsoft — vérifier avant de le
+            # lancer en SYSTEM (un binaire servi par un MITM n'aura pas de
+            # signature valide). Sysmon est un plus : on l'ignore si la signature
+            # est invalide, sans casser l'install de l'agent (osquery est deja la).
+            if ($sysmonOk -and -not $env:TC_SKIP_SIG_CHECK) {
+                $ssig = Get-AuthenticodeSignature $sysmonExe
+                if ($ssig.Status -ne 'Valid') {
+                    Write-TC "Sysmon64.exe: signature INVALIDE ($($ssig.Status)) - Sysmon ignore (possible MITM)" -Color Yellow
+                    $sysmonOk = $false
+                }
+            }
+            if ($sysmonOk) {
                 Copy-Item $sysmonExe $SysmonBin -Force
                 $proc = Start-Process -FilePath $SysmonBin -ArgumentList "-accepteula -i `"$SysmonConf`"" -Wait -PassThru -NoNewWindow
                 if ($proc.ExitCode -eq 0) {
@@ -676,14 +714,24 @@ $ps  = Collect-Events "powershell_events" "Microsoft-Windows-PowerShell/Operatio
 # Phase 3: System channel for the service-install detection (win-auth-008, Event 7045).
 $sys = Collect-Events "windows_system_events" "System" "eventid IN (7045)"
 
-# Skip cert validation for self-signed TLS (also needed for the manifest call below)
+# FRONT-C1 : bypass TLS SCOPÉ au seul serveur TC (self-signed). Le sync ne parle
+# qu'à TC (sync + manifest), mais on reste cohérent avec l'installeur — jamais de
+# bypass global au niveau du processus.
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"
+using System;
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
 public class TcCertPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
+    public static string TcHost = "";
+    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) {
+        if (req != null && req.RequestUri != null &&
+            string.Equals(req.RequestUri.Host, TcHost, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return problem == 0;
+    }
 }
 "@
+try { [TcCertPolicy]::TcHost = ([Uri]$TC_URL).Host } catch { }
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TcCertPolicy
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
