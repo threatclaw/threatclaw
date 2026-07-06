@@ -1753,9 +1753,13 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::incident_report_handler),
         )
         .route(
+            // CORE-M1 — POST uniquement. L'ancien GET exécutait la remédiation
+            // depuis `?response=approve` avec un id entier devinable et SANS
+            // nonce (CSRF / prefetch / id-guessing). Aucun appelant ne construit
+            // de lien GET (le dashboard poste, les notifs ntfy/Slack passent par
+            // le chemin nonce /api/tc/hitl/callback). Un GET renvoie désormais 405.
             "/api/tc/incidents/{id}/hitl",
-            post(super::handlers::threatclaw_api::incident_hitl_handler)
-                .get(super::handlers::threatclaw_api::incident_hitl_get_handler),
+            post(super::handlers::threatclaw_api::incident_hitl_handler),
         )
         .route(
             "/api/tc/incidents/{id}/status",
