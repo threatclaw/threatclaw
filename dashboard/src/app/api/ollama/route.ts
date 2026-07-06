@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import https from "node:https";
+import { lookup as dnsLookup } from "node:dns";
+import net from "node:net";
 
 const SERVER_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 const CORE_URL = process.env.TC_CORE_URL || "http://127.0.0.1:3000";
@@ -41,6 +44,97 @@ function isSafeCloudBase(raw: string): boolean {
     /^169\.254\./.test(h) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(h)
   );
+}
+
+// FRONT-M4 — La liste noire par hostname (isSafeCloudBase) ne protège pas contre
+// un hostname public qui *résout* vers une IP privée/metadata, ni contre le DNS
+// rebinding (résolution différente entre le contrôle et la connexion). On valide
+// donc l'IP RÉSOLUE et on épingle la connexion dessus.
+function isPrivateOrReservedIp(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const p = ip.split(".").map(Number);
+    return (
+      p[0] === 0 || // "this" network
+      p[0] === 127 || // loopback
+      p[0] === 10 || // RFC1918
+      (p[0] === 192 && p[1] === 168) || // RFC1918
+      (p[0] === 172 && p[1] >= 16 && p[1] <= 31) || // RFC1918
+      (p[0] === 169 && p[1] === 254) || // link-local + cloud metadata 169.254.169.254
+      (p[0] === 100 && p[1] >= 64 && p[1] <= 127) || // CGNAT RFC6598
+      p[0] >= 224 // multicast + réservé
+    );
+  }
+  if (net.isIPv6(ip)) {
+    const s = ip.toLowerCase();
+    if (s === "::1" || s === "::") return true; // loopback / unspecified
+    if (s.startsWith("fe80") || s.startsWith("fc") || s.startsWith("fd")) return true; // link-local + ULA
+    const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/); // IPv4-mapped
+    if (mapped) return isPrivateOrReservedIp(mapped[1]);
+    return false;
+  }
+  return true; // format inconnu → traité comme non sûr
+}
+
+/**
+ * FRONT-M4 — GET HTTPS épinglé sur l'IP résolue : la même résolution DNS sert
+ * à la validation ET à la connexion (pas de fenêtre TOCTOU / rebinding), et le
+ * hostname est conservé pour le SNI + la validation du certificat.
+ */
+function pinnedHttpsGet(
+  testUrl: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    let u: URL;
+    try {
+      u = new URL(testUrl);
+    } catch {
+      reject(new Error("invalid URL"));
+      return;
+    }
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: `${u.pathname}${u.search}`,
+        method: "GET",
+        headers: { ...headers, Host: u.host },
+        servername: u.hostname, // SNI + correspondance du certificat
+        timeout: timeoutMs,
+        // net.connect appelle lookup(host, opts, cb) et attend UNE adresse.
+        lookup: (host, _opts, cb) => {
+          dnsLookup(host, { all: true }, (err, addrs) => {
+            if (err) {
+              cb(err, "", 4);
+              return;
+            }
+            const list = Array.isArray(addrs) ? addrs : [addrs];
+            for (const a of list) {
+              if (isPrivateOrReservedIp(a.address)) {
+                cb(new Error("SSRF: résolution vers une adresse privée/réservée"), "", 4);
+                return;
+              }
+            }
+            const first = list[0];
+            cb(null, first.address, first.family);
+          });
+        },
+      },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => {
+          data += c;
+          if (data.length > 1_000_000) req.destroy(new Error("response too large"));
+        });
+        res.on("end", () => resolve({ status: res.statusCode || 0, text: data }));
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 /** GET /api/ollama?url=... — list models */
@@ -149,18 +243,24 @@ export async function POST(req: NextRequest) {
         headers["Authorization"] = `Bearer ${apiKey}`;
       }
 
-      const res = await fetch(testUrl, {
-        headers,
-        signal: AbortSignal.timeout(10000),
-      });
+      // FRONT-M4 — connexion épinglée sur l'IP résolue validée (anti-SSRF /
+      // anti-rebinding), plutôt qu'un fetch qui re-résout le DNS.
+      const res = await pinnedHttpsGet(testUrl, headers, 10000);
 
-      if (res.ok) {
-        const data = await res.json();
-        const models = data?.data?.map((m: { id: string }) => m.id) || [];
+      if (res.status >= 200 && res.status < 300) {
+        let models: string[] = [];
+        try {
+          const data = JSON.parse(res.text);
+          models = data?.data?.map((m: { id: string }) => m.id) || [];
+        } catch {
+          // corps non-JSON : connexion OK mais réponse inattendue.
+        }
         return NextResponse.json({ ok: true, models: models.slice(0, 10) });
       } else {
-        const text = await res.text().catch(() => "");
-        return NextResponse.json({ ok: false, error: `HTTP ${res.status}: ${text.slice(0, 100)}` });
+        return NextResponse.json({
+          ok: false,
+          error: `HTTP ${res.status}: ${res.text.slice(0, 100)}`,
+        });
       }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Connection failed";
