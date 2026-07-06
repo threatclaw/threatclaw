@@ -612,6 +612,21 @@ pub struct FirewallEventRecord {
     pub raw_meta: serde_json::Value,
 }
 
+/// ING-H5 — Neutralise un timestamp d'événement dans le futur.
+///
+/// Le `timestamp` d'un `firewall_events` provient de la source (log pfSense /
+/// Fortinet), donc attaquant-contrôlable. Un événement daté loin dans le futur
+/// empoisonne toute détection/dedup fenêtrée sur le temps de l'événement. On
+/// tolère une dérive d'horloge raisonnable (`skew`) puis on rabat sur `now` :
+/// aucun événement ne peut prétendre s'être produit dans le futur.
+pub fn clamp_future_ts(
+    ts: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+    skew: chrono::Duration,
+) -> chrono::DateTime<chrono::Utc> {
+    if ts > now + skew { now } else { ts }
+}
+
 #[derive(Debug, Clone)]
 pub struct NewFirewallEvent {
     pub timestamp: chrono::DateTime<chrono::Utc>,
@@ -2484,4 +2499,31 @@ pub struct NewInvestigationStep {
     pub payload: serde_json::Value,
     pub duration_ms: Option<i32>,
     pub status: StepStatus,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clamp_future_ts;
+    use chrono::{Duration, TimeZone, Utc};
+
+    #[test]
+    fn clamp_future_ts_rabat_le_futur_sur_now() {
+        let now = Utc.with_ymd_and_hms(2026, 7, 6, 12, 0, 0).unwrap();
+        let skew = Duration::minutes(5);
+
+        // Événement daté 1 an dans le futur (empoisonnement) → rabattu sur now.
+        let evil = now + Duration::days(365);
+        assert_eq!(clamp_future_ts(evil, now, skew), now);
+
+        // Événement dans le futur au-delà du skew → rabattu.
+        assert_eq!(clamp_future_ts(now + Duration::minutes(30), now, skew), now);
+
+        // Dérive d'horloge tolérée (dans le skew) → conservé tel quel.
+        let slight = now + Duration::minutes(2);
+        assert_eq!(clamp_future_ts(slight, now, skew), slight);
+
+        // Événement passé (cas normal) → jamais modifié.
+        let past = now - Duration::hours(3);
+        assert_eq!(clamp_future_ts(past, now, skew), past);
+    }
 }

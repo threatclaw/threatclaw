@@ -6116,7 +6116,12 @@ impl ThreatClawStore for PgBackend {
         }
         let conn = self.pool().get().await.map_err(pool_err)?;
         let mut inserted = 0usize;
+        // ING-H5 — un `timestamp` source dans le futur empoisonne les détections
+        // fenêtrées ; on le rabat sur `now` (dérive d'horloge tolérée).
+        let now = chrono::Utc::now();
+        let skew = chrono::Duration::minutes(5);
         for ev in events {
+            let ts = crate::db::threatclaw_store::clamp_future_ts(ev.timestamp, now, skew);
             // INET cast happens server-side via $5/$7::inet — pass strings.
             let n = conn
                 .execute(
@@ -6126,7 +6131,7 @@ impl ThreatClawStore for PgBackend {
                        VALUES ($1, $2, $3, $4, $5, $6,
                                $7::inet, $8, $9::inet, $10, $11, $12)"#,
                     &[
-                        &ev.timestamp,
+                        &ts,
                         &ev.fw_source,
                         &ev.interface,
                         &ev.action,
@@ -6233,7 +6238,11 @@ impl ThreatClawStore for PgBackend {
                    FROM firewall_events
                    WHERE action = 'block'
                      AND src_ip IS NOT NULL
-                     AND timestamp >= $1
+                     -- ING-H5 — fenêtre sur inserted_at (temps d'ingestion,
+                     -- non falsifiable) et non sur timestamp (source-contrôlé),
+                     -- pour qu'un attaquant ne puisse pas dater ses événements
+                     -- hors/dans la fenêtre et masquer un vrai brute-force.
+                     AND inserted_at >= $1
                    GROUP BY src_ip
                    HAVING COUNT(*) >= 5
                    ORDER BY blocked_count DESC
