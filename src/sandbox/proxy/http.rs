@@ -12,7 +12,7 @@
 //! ```
 
 use std::convert::Infallible;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -34,8 +34,6 @@ struct ProxyState {
     decider: Arc<dyn NetworkPolicyDecider>,
     /// Credential resolver (maps secret names to values).
     credential_resolver: Arc<dyn CredentialResolver>,
-    /// Shared HTTP client for forwarding requests.
-    http_client: reqwest::Client,
     /// Request counter for logging.
     request_count: std::sync::atomic::AtomicU64,
     /// Whether the proxy is running.
@@ -86,7 +84,6 @@ impl HttpProxy {
             state: Arc::new(ProxyState {
                 decider,
                 credential_resolver,
-                http_client: reqwest::Client::new(),
                 request_count: std::sync::atomic::AtomicU64::new(0),
                 running: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -237,6 +234,57 @@ async fn handle_request(
     }
 }
 
+/// CORE-M3 — Adresses vers lesquelles le proxy sandbox ne doit JAMAIS se
+/// connecter, quelle que soit la liste blanche de domaines : loopback (services
+/// de l'hôte), link-local — qui inclut la metadata cloud 169.254.169.254 et
+/// fe80::/10 —, unspecified et multicast. Les plages RFC1918 / ULA restent
+/// AUTORISÉES : le proxy joint légitimement les services outils sur le réseau
+/// Docker (172.x) et, pour les skills de scan, des cibles internes.
+fn proxy_target_forbidden(ip: &IpAddr) -> bool {
+    fn v4_forbidden(v4: &Ipv4Addr) -> bool {
+        v4.is_loopback() || v4.is_link_local() || v4.is_unspecified() || v4.is_multicast()
+    }
+    match ip {
+        IpAddr::V4(v4) => v4_forbidden(v4),
+        IpAddr::V6(v6) => {
+            // Une IPv6 mappée IPv4 (::ffff:169.254.169.254) doit être jugée sur
+            // sa forme IPv4, sinon elle contourne le filtre.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return v4_forbidden(&v4);
+            }
+            let seg0 = v6.segments()[0];
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (seg0 & 0xffc0) == 0xfe80 // link-local fe80::/10
+        }
+    }
+}
+
+/// CORE-M3 — Résout `host:port` UNE seule fois, rejette toute adresse interdite,
+/// et renvoie les adresses validées. La connexion est ensuite ÉPINGLÉE sur ces
+/// adresses (la même résolution sert à la validation ET à la connexion), ce qui
+/// défait le DNS rebinding : un hôte autorisé ne peut pas être re-résolu vers la
+/// metadata / loopback entre le contrôle et la connexion.
+async fn resolve_validated_target(
+    host: &str,
+    port: u16,
+) -> std::result::Result<Vec<SocketAddr>, String> {
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(format!("{host}:{port}"))
+        .await
+        .map_err(|e| format!("DNS resolution failed for '{host}': {e}"))?
+        .collect();
+    if addrs.is_empty() {
+        return Err(format!("DNS resolution for '{host}' returned no address"));
+    }
+    for a in &addrs {
+        if proxy_target_forbidden(&a.ip()) {
+            return Err(format!("'{host}' resolves to forbidden address {}", a.ip()));
+        }
+    }
+    Ok(addrs)
+}
+
 /// Handle CONNECT method for HTTPS tunneling.
 ///
 /// Establishes a bidirectional TCP tunnel between the client and the target host.
@@ -259,6 +307,7 @@ async fn handle_connect(
     };
 
     let host = authority.host().to_string();
+    let port = authority.port_u16().unwrap_or(443);
     let target_addr = authority.as_str().to_string();
 
     // Check if host is allowed
@@ -276,7 +325,18 @@ async fn handle_connect(
         return error_response(StatusCode::FORBIDDEN, reason);
     }
 
-    tracing::debug!("Proxy: allowing CONNECT to {}", target_addr);
+    // CORE-M3 — résout + valide l'IP AVANT d'ouvrir le tunnel, puis épingle la
+    // connexion sur l'adresse validée (anti-SSRF metadata + anti-rebinding). La
+    // liste blanche (ci-dessus) reste la source d'autorité sur le domaine.
+    let pinned = match resolve_validated_target(&host, port).await {
+        Ok(addrs) => addrs[0],
+        Err(reason) => {
+            tracing::info!("Proxy: blocked CONNECT {} - {}", host, reason);
+            return error_response(StatusCode::FORBIDDEN, reason);
+        }
+    };
+
+    tracing::debug!("Proxy: allowing CONNECT to {} (pinned {})", target_addr, pinned);
 
     // Spawn a fire-and-forget task to establish the tunnel after the upgrade
     // completes.  The 30-minute timeout guarantees every tunnel task terminates
@@ -287,7 +347,7 @@ async fn handle_connect(
         match hyper::upgrade::on(req).await {
             Ok(upgraded) => {
                 let mut client_stream = TokioIo::new(upgraded);
-                match TcpStream::connect(&target).await {
+                match TcpStream::connect(pinned).await {
                     Ok(mut server_stream) => {
                         let tunnel_timeout = std::time::Duration::from_secs(30 * 60);
                         match tokio::time::timeout(
@@ -332,8 +392,34 @@ async fn forward_request(
     let method = req.method().clone();
     let uri = req.uri().clone();
 
+    // CORE-M3 — résout + valide l'IP de la cible et épingle le client dessus
+    // (anti-SSRF metadata + anti-rebinding DNS). La liste blanche a déjà autorisé
+    // le domaine en amont ; ici on garantit qu'on ne parle qu'à l'IP validée.
+    let host = uri.host().unwrap_or_default().to_string();
+    let scheme_https = uri.scheme_str() == Some("https");
+    let port = uri.port_u16().unwrap_or(if scheme_https { 443 } else { 80 });
+    let pinned_addrs = match resolve_validated_target(&host, port).await {
+        Ok(a) => a,
+        Err(reason) => {
+            tracing::info!("Proxy: blocked forward {} - {}", host, reason);
+            return Ok(error_response(StatusCode::FORBIDDEN, reason));
+        }
+    };
+    let client = match reqwest::Client::builder()
+        .resolve_to_addrs(&host, &pinned_addrs)
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("proxy client build failed: {e}"),
+            ));
+        }
+    };
+
     // Build the forwarded request
-    let mut builder = state.http_client.request(
+    let mut builder = client.request(
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET),
         uri.to_string(),
     );
@@ -518,6 +604,27 @@ mod tests {
     use super::*;
     use crate::sandbox::proxy::allowlist::DomainAllowlist;
     use crate::sandbox::proxy::policy::DefaultPolicyDecider;
+
+    #[test]
+    fn proxy_target_forbidden_blocks_metadata_and_loopback_allows_rfc1918() {
+        let forbidden = |s: &str| proxy_target_forbidden(&s.parse::<IpAddr>().unwrap());
+        // Jamais légitimes : bloqués.
+        assert!(forbidden("169.254.169.254"), "metadata cloud");
+        assert!(forbidden("169.254.0.1"), "link-local");
+        assert!(forbidden("127.0.0.1"), "loopback");
+        assert!(forbidden("0.0.0.0"), "unspecified");
+        assert!(forbidden("224.0.0.1"), "multicast");
+        assert!(forbidden("::1"), "loopback v6");
+        assert!(forbidden("fe80::1"), "link-local v6");
+        assert!(forbidden("::ffff:169.254.169.254"), "metadata mappée v6");
+        assert!(forbidden("::ffff:127.0.0.1"), "loopback mappé v6");
+        // Légitimes pour le proxy (services outils Docker + scan interne) : autorisés.
+        assert!(!forbidden("172.18.0.5"), "réseau Docker");
+        assert!(!forbidden("10.77.0.136"), "lab interne");
+        assert!(!forbidden("192.168.1.10"), "LAN interne");
+        assert!(!forbidden("8.8.8.8"), "public");
+        assert!(!forbidden("fd00::1"), "ULA v6 (équiv RFC1918)");
+    }
 
     #[tokio::test]
     async fn test_proxy_starts_and_stops() {
