@@ -19,11 +19,113 @@
 //! between releases.
 
 use async_trait::async_trait;
+use base64::Engine;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const DEFAULT_WORKER_BASE: &str = "https://license.threatclaw.io";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
+// ── CLOUD-H1 — Authentification cryptographique du MANIFEST de packs ──
+//
+// Sans signature, le MANIFEST (et donc l'ensemble des packs de détection du
+// parc) n'est protégé que par TLS + une clé de support que l'AGENT envoie :
+// quiconque peut servir/usurper la réponse manifest (bucket R2 compromis, MITM
+// au-delà de TLS, miroir malveillant, override `TC_LICENSE_API_URL`) peut
+// pousser des packs arbitraires. On exige une signature Ed25519 détachée sur les
+// octets exacts du corps du manifest, vérifiée contre une ancre de confiance
+// DISTINCTE des clés de licence (compromettre l'une ne doit pas authentifier
+// l'autre).
+//
+// En-tête portant la signature détachée (base64) sur le corps exact du manifest.
+const PACK_SIG_HEADER: &str = "x-tc-pack-signature";
+
+/// Ancres de confiance (compile-time) pour le MANIFEST de packs du hub/R2.
+/// Les emplacements tout-à-zéro sont des placeholders et sont ignorés : un build
+/// non provisionné (le défaut aujourd'hui) n'a donc AUCUNE ancre et retombe sur
+/// le comportement historique (voir `verify_manifest_sig`).
+///
+/// PROVISIONNEMENT (côté worker — repo R2 CyberConsulting) :
+///   1. `openssl genpkey -algorithm ed25519 -out pack_sign.key` (clé privée =
+///      secret Wrangler, JAMAIS committée).
+///   2. Le worker signe les octets EXACTS du corps manifest qu'il sert et place
+///      la signature base64 dans l'en-tête `x-tc-pack-signature`.
+///   3. Embarquer la clé publique 32 octets ici (remplacer un slot zéro) et
+///      livrer le build agent → la vérification devient fail-closed.
+const PACK_TRUSTED_PUBKEYS: &[[u8; 32]] = &[
+    [0u8; 32], // slot 1 — à provisionner
+    [0u8; 32], // slot 2 — rotation
+];
+
+/// Ancres de confiance effectives : clés embarquées (forme durcie) + éventuelle
+/// clé opérateur via `TC_PACK_PUBKEY_ED25519` (hex 64 chars) pour activer la
+/// signature en déploiement progressif sans recompilation. Vide = non provisionné.
+fn pack_trust_anchors() -> Vec<[u8; 32]> {
+    let mut anchors: Vec<[u8; 32]> = PACK_TRUSTED_PUBKEYS
+        .iter()
+        .filter(|k| *k != &[0u8; 32])
+        .copied()
+        .collect();
+    if let Ok(hex) = std::env::var("TC_PACK_PUBKEY_ED25519") {
+        if let Some(k) = decode_hex32(hex.trim()) {
+            if k != [0u8; 32] {
+                anchors.push(k);
+            }
+        }
+    }
+    anchors
+}
+
+/// Décode 64 caractères hex en clé Ed25519 32 octets. `None` si malformé.
+fn decode_hex32(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok()?;
+    }
+    Some(out)
+}
+
+/// CLOUD-H1 — Vérifie une signature Ed25519 détachée (base64) sur les octets du
+/// manifest contre les ancres de confiance.
+///
+/// - Ancres vides (non provisionné) → comportement historique : on ne vérifie
+///   pas (confiance TLS seule) mais on émet un avertissement.
+/// - Ancres présentes → **fail-closed** : signature absente ou invalide = `Err`,
+///   ce qui condamne le cycle (aucun pack appliqué).
+fn verify_manifest_sig(
+    body: &[u8],
+    sig_b64: Option<&str>,
+    anchors: &[[u8; 32]],
+) -> Result<(), String> {
+    if anchors.is_empty() {
+        tracing::warn!(
+            "CLOUD-H1: signature du manifest de packs NON vérifiée (aucune clé pack provisionnée) — confiance TLS seule. Embarquer une clé / TC_PACK_PUBKEY_ED25519 + activer la signature côté worker pour passer en fail-closed."
+        );
+        return Ok(());
+    }
+    let sig_b64 =
+        sig_b64.ok_or_else(|| "signature manifest requise mais absente (x-tc-pack-signature)".to_string())?;
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(sig_b64.trim())
+        .map_err(|_| "signature manifest : base64 invalide".to_string())?;
+    let sig_bytes: [u8; 64] = raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| "signature manifest : longueur != 64 octets".to_string())?;
+    let sig = Signature::from_bytes(&sig_bytes);
+    for pk in anchors {
+        if let Ok(vk) = VerifyingKey::from_bytes(pk) {
+            if vk.verify(body, &sig).is_ok() {
+                return Ok(());
+            }
+        }
+    }
+    Err("signature manifest rejetée par toutes les ancres de confiance".to_string())
+}
 
 // Where the Sigma pack's last successfully-applied version is persisted, so the
 // updater skips a download when already current — across restarts too. Kept on
@@ -441,6 +543,24 @@ pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
     got.eq_ignore_ascii_case(expected_hex.trim())
 }
 
+/// CLOUD-H1 — Politique d'intégrité par pack. Une fois le MANIFEST authentifié
+/// (`signed`), le `sha256` de CHAQUE pack devient OBLIGATOIRE — sinon la
+/// signature du manifest n'authentifierait pas réellement les octets
+/// téléchargés (un pack sans hash resterait librement substituable). Hors régime
+/// signé, on conserve le comportement historique (hash vérifié s'il est présent).
+fn enforce_pack_hash(entry: &PackEntry, bytes: &[u8], signed: bool) -> Result<(), String> {
+    match entry.sha256.as_deref() {
+        Some(expected) if !verify_sha256(bytes, expected) => {
+            Err(format!("sha256 mismatch for pack {}", entry.name))
+        }
+        None if signed => Err(format!(
+            "pack {} sans sha256 dans un manifest signé (refus)",
+            entry.name
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Extract a gzipped tar of rule files into `dest`, whose CONTENTS are wiped
 /// first so removed-upstream files don't linger on disk. Returns the number of
 /// `*.yml` / `*.yaml` files written. The `tar` crate refuses entries that would
@@ -564,10 +684,19 @@ pub async fn run_community_update_with(
     if !manifest.status().is_success() {
         return Err(format!("manifest http {}", manifest.status()));
     }
+    // CLOUD-H1 — même authentification pour le canal communautaire (keyless).
+    let sig_header = manifest
+        .headers()
+        .get(PACK_SIG_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let body = manifest
         .text()
         .await
         .map_err(|e| format!("manifest body: {e}"))?;
+    let anchors = pack_trust_anchors();
+    verify_manifest_sig(body.as_bytes(), sig_header.as_deref(), &anchors)?;
+    let signed = !anchors.is_empty();
     let entries = parse_manifest_packs(&body);
     if entries.is_empty() {
         return Err("community manifest lists no packs".to_string());
@@ -592,7 +721,7 @@ pub async fn run_community_update_with(
             results.push((name.to_string(), PackOutcome::UpToDate));
             continue;
         }
-        match community_sync_one(&client, store, &cfg, installer.as_ref(), entry).await {
+        match community_sync_one(&client, store, &cfg, installer.as_ref(), entry, signed).await {
             Ok(items) => {
                 let _ = store
                     .set_setting(ns, &key, &serde_json::json!(entry.version))
@@ -619,6 +748,7 @@ async fn community_sync_one(
     cfg: &RuleUpdateConfig,
     installer: &dyn PackInstaller,
     entry: &PackEntry,
+    signed: bool,
 ) -> Result<usize, String> {
     let dl = client
         .get(installer.community_download_url(cfg))
@@ -629,13 +759,7 @@ async fn community_sync_one(
         return Err(format!("pack http {}", dl.status()));
     }
     let bytes = dl.bytes().await.map_err(|e| format!("pack body: {e}"))?;
-    if entry
-        .sha256
-        .as_deref()
-        .is_some_and(|sha| !verify_sha256(&bytes, sha))
-    {
-        return Err(format!("community pack sha256 mismatch for {}", entry.name));
-    }
+    enforce_pack_hash(entry, &bytes, signed)?;
     installer.install(store, cfg, &bytes).await
 }
 
@@ -675,10 +799,21 @@ pub async fn run_update_cycle_with(
     if !manifest.status().is_success() {
         return Err(format!("manifest http {}", manifest.status()));
     }
+    // CLOUD-H1 — récupère la signature détachée AVANT de consommer le corps.
+    let sig_header = manifest
+        .headers()
+        .get(PACK_SIG_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
     let manifest_body = manifest
         .text()
         .await
         .map_err(|e| format!("manifest body: {e}"))?;
+    // CLOUD-H1 — authentifie le manifest (fail-closed si une clé pack est
+    // provisionnée). En régime signé, le sha256 par pack devient obligatoire.
+    let anchors = pack_trust_anchors();
+    verify_manifest_sig(manifest_body.as_bytes(), sig_header.as_deref(), &anchors)?;
+    let signed = !anchors.is_empty();
     let entries = parse_manifest_packs(&manifest_body);
     if entries.is_empty() {
         return Err("manifest lists no packs".to_string());
@@ -703,7 +838,7 @@ pub async fn run_update_cycle_with(
             results.push((name.to_string(), PackOutcome::UpToDate));
             continue;
         }
-        match sync_one_pack(&client, store, cfg, installer.as_ref(), entry).await {
+        match sync_one_pack(&client, store, cfg, installer.as_ref(), entry, signed).await {
             Ok(items) => {
                 // Remember the applied version so the next cycle no-ops until it
                 // changes. Only after a successful install.
@@ -732,6 +867,7 @@ async fn sync_one_pack(
     cfg: &RuleUpdateConfig,
     installer: &dyn PackInstaller,
     entry: &PackEntry,
+    signed: bool,
 ) -> Result<usize, String> {
     let dl = client
         .get(installer.download_url(cfg))
@@ -744,13 +880,7 @@ async fn sync_one_pack(
         return Err(format!("pack http {}", dl.status()));
     }
     let bytes = dl.bytes().await.map_err(|e| format!("pack body: {e}"))?;
-    if entry
-        .sha256
-        .as_deref()
-        .is_some_and(|expected| !verify_sha256(&bytes, expected))
-    {
-        return Err(format!("sha256 mismatch for pack {}", entry.name));
-    }
+    enforce_pack_hash(entry, &bytes, signed)?;
     installer.install(store, cfg, &bytes).await
 }
 
@@ -783,6 +913,107 @@ mod tests {
         );
         assert_eq!(parse_manifest_version("not json"), None);
         assert_eq!(parse_manifest_version(r#"{"packs":[]}"#), None);
+    }
+
+    // ── CLOUD-H1 — authentification du manifest ──
+
+    fn test_keypair() -> ed25519_dalek::SigningKey {
+        // Graine déterministe → test reproductible, aucun RNG requis.
+        ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+    }
+
+    fn sign_b64(sk: &ed25519_dalek::SigningKey, body: &[u8]) -> String {
+        use ed25519_dalek::Signer;
+        base64::engine::general_purpose::STANDARD.encode(sk.sign(body).to_bytes())
+    }
+
+    #[test]
+    fn decode_hex32_roundtrip_and_rejects() {
+        let k = [0xABu8; 32];
+        let hex: String = k.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(decode_hex32(&hex), Some(k));
+        assert_eq!(decode_hex32("tooshort"), None);
+        assert_eq!(decode_hex32(&"z".repeat(64)), None); // non-hex
+    }
+
+    #[test]
+    fn manifest_sig_unprovisioned_is_permitted() {
+        // Aucune ancre → comportement historique (confiance TLS), pas d'erreur.
+        assert!(verify_manifest_sig(b"{}", None, &[]).is_ok());
+    }
+
+    #[test]
+    fn manifest_sig_valid_passes() {
+        let sk = test_keypair();
+        let body = br#"{"version":"1","packs":[]}"#;
+        let anchors = vec![sk.verifying_key().to_bytes()];
+        let sig = sign_b64(&sk, body);
+        assert!(verify_manifest_sig(body, Some(&sig), &anchors).is_ok());
+    }
+
+    #[test]
+    fn manifest_sig_missing_when_provisioned_fails_closed() {
+        let sk = test_keypair();
+        let anchors = vec![sk.verifying_key().to_bytes()];
+        let err = verify_manifest_sig(b"{}", None, &anchors).unwrap_err();
+        assert!(err.contains("absente"), "got: {err}");
+    }
+
+    #[test]
+    fn manifest_sig_tampered_body_rejected() {
+        let sk = test_keypair();
+        let body = br#"{"version":"1","packs":[]}"#;
+        let anchors = vec![sk.verifying_key().to_bytes()];
+        let sig = sign_b64(&sk, body); // signature sur le corps original
+        // Un attaquant modifie le corps (ajoute un pack) mais rejoue la signature.
+        let tampered = br#"{"version":"1","packs":[{"pack":"evil"}]}"#;
+        assert!(verify_manifest_sig(tampered, Some(&sig), &anchors).is_err());
+    }
+
+    #[test]
+    fn manifest_sig_wrong_key_rejected() {
+        let sk = test_keypair();
+        let other = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+        let body = br#"{"version":"1"}"#;
+        let sig = sign_b64(&sk, body); // signé par sk
+        let anchors = vec![other.verifying_key().to_bytes()]; // ancre = autre clé
+        assert!(verify_manifest_sig(body, Some(&sig), &anchors).is_err());
+    }
+
+    #[test]
+    fn manifest_sig_bad_base64_rejected() {
+        let sk = test_keypair();
+        let anchors = vec![sk.verifying_key().to_bytes()];
+        assert!(verify_manifest_sig(b"{}", Some("!!not base64!!"), &anchors).is_err());
+    }
+
+    #[test]
+    fn enforce_pack_hash_policy() {
+        let bytes = b"pack-content";
+        let good = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(bytes));
+        let with_hash = PackEntry {
+            name: "kev".into(),
+            version: "1".into(),
+            sha256: Some(good.clone()),
+        };
+        let no_hash = PackEntry {
+            name: "kev".into(),
+            version: "1".into(),
+            sha256: None,
+        };
+        let bad_hash = PackEntry {
+            name: "kev".into(),
+            version: "1".into(),
+            sha256: Some("deadbeef".into()),
+        };
+        // Régime signé : hash obligatoire.
+        assert!(enforce_pack_hash(&with_hash, bytes, true).is_ok());
+        assert!(enforce_pack_hash(&no_hash, bytes, true).is_err()); // manquant → refus
+        assert!(enforce_pack_hash(&bad_hash, bytes, true).is_err()); // mismatch → refus
+        // Régime historique : hash vérifié s'il est présent, toléré s'il manque.
+        assert!(enforce_pack_hash(&with_hash, bytes, false).is_ok());
+        assert!(enforce_pack_hash(&no_hash, bytes, false).is_ok());
+        assert!(enforce_pack_hash(&bad_hash, bytes, false).is_err());
     }
 
     #[test]
