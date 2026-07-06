@@ -1,0 +1,19 @@
+{
+  "schema": "threatclaw-rules-v1",
+  "version": "2026.07.06",
+  "manifest_sha256": "c41c886cdf5fae25ebc1d52571fce58594da57d50d441adfc95dcf7e39f4ec10",
+  "signed_at": "2026-07-06T07:19:06Z",
+  "expires": "2026-08-10T07:19:06Z",
+  "algo": "ed25519",
+  "key_id": "5f20059e37fc818d",
+  "public_key_b64": "XyAFnjf8gY3AMdUpvkmrP/SUxb0YmgzNSZY1KJZDUvE=",
+  "sig_b64": "vYZCgMw6dIhYVpH+V0/nyul8WhYBfcpxrKEGacYX7Q9S+PSYsosXOSdymK/ZqbUVohA9jeWYJS0DRe+gdO1PDg==",
+  "source_commits": {
+    "hayabusa": "8b0309b5ce63a4883ea674540101325108415b9f",
+    "mdecrevoisier": "d61408af8769c74c96296b7ccc92d4bc3abb15af",
+    "sigma": "d3e9461ea380263e2a3329a9f74dec8633d50474",
+    "thk-yara": "b50a94d17e635b1fee631b32f3efa4731c759a04"
+  },
+  "provenance_sha256": "0f9f61d8f1418075b6cefd34cd54f16ac3a269afbde821bfa99d9517549466ab",
+  "scores_sha256": "ffa8123dfdbcdf835b8730b11f13f44cbf3d8fd4c69bfac300942520bc8d533d"
+}

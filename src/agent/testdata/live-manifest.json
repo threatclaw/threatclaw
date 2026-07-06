@@ -1,0 +1,13 @@
+{
+  "version": "2026.07.06",
+  "built_for": "ThreatClaw rule subscription",
+  "packs": [
+    {"pack":"sigma","file":"sigma-v2026.07.06.tar.gz","rules":6501,"standard":6143,"exclusive":358,"bytes":2571697,"sha256":"e18cb5779870c0623a8fe238662145f396292897265dee9311c89bbea0da8a1f"},
+    {"pack":"sigma-agent","file":"sigma-agent-v2026.07.06.tar.gz","rules":5567,"converted":3033,"skipped":107,"exclusive":429,"aggregated_net_new":2105,"bytes":2186299,"sha256":"ae0f142aadd45853187d47eee74cd49f62a554caef1e50a3a02b3f22b57a48cd","aggregated":[{"source":"mdecrevoisier","converted":277,"net_new":268,"dropped":9},{"source":"hayabusa","converted":2359,"net_new":1837,"dropped":522}]},
+    {"pack":"yara","file":"yara-v2026.07.06.tar.gz","rules":10013,"bytes":4004373,"sha256":"78747414331e88a7b076ceba1fbf656e1678d8718d3ab92be19c4ec09ba94b82"},
+    {"pack":"kev","file":"kev-v2026.07.06.json.gz","entries":1631,"bytes":175669,"sha256":"8d3271bee66f00668c23117698b6b93fe3d62f30c6a425b5e94f5fa637764b50"},
+    {"pack":"mitre","file":"mitre-v2026.07.06.json.gz","techniques":858,"bytes":9023058,"sha256":"1bc4a0ba65c433d0a3d75cf95a7fa89ec50e408fae669af9d8b5891d1f912f6c"},
+    {"pack":"epss","file":"epss-v2026.07.06.csv.gz","entries":345694,"bytes":2542348,"sha256":"92c9011311391625ce0a0f5441c752812bcf81158752d45d44e169be0a094e53"},
+    {"pack":"ioc","file":"ioc-v2026.07.06.ndjson.gz","entries":14748,"bytes":78662,"sha256":"2f1257eb014e5d98bb13c7a09e2e063b7660b46d52064f72cd8f46ddf7e35c59"}
+  ]
+}

@@ -40,6 +40,22 @@ const COMMUNITY_VERSION_KEY: &str = "community_version";
 const SUPPORT_KEY_NS: &str = "_system";
 const SUPPORT_KEY_SETTING: &str = "tc_support_key";
 
+// --- Rule-pack signature verification (supply-chain integrity) --------------
+// Pinned Ed25519 public key of the rule-signing pipeline. The private half never
+// leaves the build pipeline (blackbox + CI secret), so a compromised R2/CDN cannot
+// forge a manifest this key accepts. These 32 raw bytes are base64
+// "XyAFnjf8gY3AMdUpvkmrP/SUxb0YmgzNSZY1KJZDUvE=" (key_id 5f20059e37fc818d); the
+// `pinned_pubkey_matches_published_base64` test guards the transcription.
+const RULES_SIGNING_PUBKEY: [u8; 32] = [
+    0x5f, 0x20, 0x05, 0x9e, 0x37, 0xfc, 0x81, 0x8d, 0xc0, 0x31, 0xd5, 0x29, 0xbe, 0x49, 0xab, 0x3f,
+    0xf4, 0x94, 0xc5, 0xbd, 0x18, 0x9a, 0x0c, 0xcd, 0x49, 0x96, 0x35, 0x28, 0x96, 0x43, 0x52, 0xf1,
+];
+const RULES_SIG_SCHEMA: &str = "threatclaw-rules-v1";
+// Highest manifest version whose signature we have verified — the anti-rollback
+// anchor, so a stolen-R2 attacker cannot replay an older validly-signed manifest.
+const SIG_VERSION_NS: &str = "_system";
+const SIG_VERSION_KEY: &str = "rules_last_verified_version";
+
 /// Resolved configuration for one update run.
 pub struct RuleUpdateConfig {
     pub worker_base: String,
@@ -105,6 +121,9 @@ impl RuleUpdateConfig {
 
     fn manifest_url(&self) -> String {
         format!("{}/api/agent/rules/manifest", self.worker_base)
+    }
+    fn signature_url(&self) -> String {
+        format!("{}/api/agent/rules/signature", self.worker_base)
     }
     fn download_url(&self) -> String {
         format!("{}/api/agent/rules/download", self.worker_base)
@@ -441,6 +460,84 @@ pub fn verify_sha256(bytes: &[u8], expected_hex: &str) -> bool {
     got.eq_ignore_ascii_case(expected_hex.trim())
 }
 
+/// Verify the Ed25519 signature that authenticates a rule-pack `MANIFEST.json`,
+/// returning the signed version on success. Fail-closed supply-chain gate — the
+/// agent installs packs only when this passes.
+///
+/// Checks, in order: schema; `manifest_sha256 == sha256(manifest_body)` (binds the
+/// signature to THIS manifest); the detached signature over the canonical message
+/// with `pubkey` (callers pass the PINNED key — the file's own `public_key_b64` is
+/// ignored on purpose, else a stolen R2 could ship key+sig together); anti-rollback
+/// (`version >= min_version`); anti-freeze (`now < expires`). Pure — `pubkey`,
+/// `min_version` and `now` are injected so it unit-tests without a key, clock or DB.
+///
+/// Canonical signed message (newline-joined, no trailing newline):
+/// `threatclaw-rules-v1\n{version}\n{manifest_sha256}\n{expires}\n{provenance_sha256}\n{scores_sha256}`
+pub fn verify_rules_signature(
+    pubkey: &[u8; 32],
+    manifest_body: &str,
+    sig_json: &str,
+    min_version: Option<&str>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<String, String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
+    let sig: serde_json::Value =
+        serde_json::from_str(sig_json).map_err(|e| format!("signature json: {e}"))?;
+    let get = |k: &str| -> Result<String, String> {
+        sig.get(k)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("signature missing '{k}'"))
+    };
+    if get("schema")? != RULES_SIG_SCHEMA {
+        return Err("signature schema mismatch".to_string());
+    }
+    let version = get("version")?;
+    let manifest_sha256 = get("manifest_sha256")?;
+    let expires = get("expires")?;
+    let provenance_sha256 = get("provenance_sha256")?;
+    let scores_sha256 = get("scores_sha256")?;
+    let sig_b64 = get("sig_b64")?;
+
+    // 1. The signature commits to manifest_sha256; bind it to THIS manifest body.
+    if !verify_sha256(manifest_body.as_bytes(), &manifest_sha256) {
+        return Err("manifest hash does not match signature".to_string());
+    }
+    // 2. Ed25519 over the canonical message with the PINNED key.
+    let msg = format!(
+        "{RULES_SIG_SCHEMA}\n{version}\n{manifest_sha256}\n{expires}\n{provenance_sha256}\n{scores_sha256}"
+    );
+    let sig_bytes = B64
+        .decode(sig_b64.trim())
+        .map_err(|e| format!("signature b64: {e}"))?;
+    let sig_arr: [u8; 64] = sig_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| "signature length".to_string())?;
+    let vk = VerifyingKey::from_bytes(pubkey).map_err(|e| format!("pinned key: {e}"))?;
+    vk.verify(msg.as_bytes(), &Signature::from_bytes(&sig_arr))
+        .map_err(|_| "signature does not verify against the pinned key".to_string())?;
+    // 3. Anti-rollback: never accept an older validly-signed manifest. Versions are
+    //    zero-padded YYYY.MM.DD, so a byte-wise compare is chronological.
+    if let Some(min) = min_version {
+        if !min.is_empty() && version.as_str() < min {
+            return Err(format!(
+                "manifest version {version} older than last verified {min}"
+            ));
+        }
+    }
+    // 4. Anti-freeze: refuse a stale / withheld signature.
+    let exp = chrono::DateTime::parse_from_rfc3339(&expires)
+        .map_err(|e| format!("expires parse: {e}"))?
+        .with_timezone(&chrono::Utc);
+    if now >= exp {
+        return Err(format!("signature expired at {expires}"));
+    }
+    Ok(version)
+}
+
 /// Extract a gzipped tar of rule files into `dest`, whose CONTENTS are wiped
 /// first so removed-upstream files don't linger on disk. Returns the number of
 /// `*.yml` / `*.yaml` files written. The `tar` crate refuses entries that would
@@ -679,6 +776,50 @@ pub async fn run_update_cycle_with(
         .text()
         .await
         .map_err(|e| format!("manifest body: {e}"))?;
+
+    // 1b. Supply-chain gate: verify the manifest's Ed25519 signature with our
+    // PINNED key BEFORE trusting any pack. Fail-closed — a missing / unreachable /
+    // invalid signature aborts the whole cycle and installs nothing, so the agent
+    // keeps its current rules rather than ever loading unverified ones.
+    let sig_resp = client
+        .get(cfg.signature_url())
+        .bearer_auth(&cfg.support_key)
+        .header("X-Install-Id", &cfg.install_id)
+        .send()
+        .await
+        .map_err(|e| format!("signature fetch: {e}"))?;
+    if !sig_resp.status().is_success() {
+        return Err(format!(
+            "signature http {} — refusing to install unverified rules",
+            sig_resp.status()
+        ));
+    }
+    let sig_body = sig_resp
+        .text()
+        .await
+        .map_err(|e| format!("signature body: {e}"))?;
+    let min_version = store
+        .get_setting(SIG_VERSION_NS, SIG_VERSION_KEY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(str::to_string));
+    let verified_version = verify_rules_signature(
+        &RULES_SIGNING_PUBKEY,
+        &manifest_body,
+        &sig_body,
+        min_version.as_deref(),
+        chrono::Utc::now(),
+    )?;
+    // Advance the anti-rollback anchor now that this version's signature is proven.
+    let _ = store
+        .set_setting(
+            SIG_VERSION_NS,
+            SIG_VERSION_KEY,
+            &serde_json::json!(verified_version),
+        )
+        .await;
+
     let entries = parse_manifest_packs(&manifest_body);
     if entries.is_empty() {
         return Err("manifest lists no packs".to_string());
@@ -843,6 +984,126 @@ mod tests {
             "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
         ));
         assert!(!verify_sha256(empty, "deadbeef"));
+    }
+
+    // --- rule-pack signature verification -----------------------------------
+    fn ephemeral_key() -> ed25519_dalek::SigningKey {
+        ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+    }
+
+    /// Build a `rules-signature.json` string signed with `sk` over the canonical
+    /// message, mirroring exactly what `sign-manifest.py` produces on the pipeline.
+    fn make_sig_json(
+        sk: &ed25519_dalek::SigningKey,
+        version: &str,
+        manifest_body: &str,
+        expires: &str,
+    ) -> String {
+        use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+        use ed25519_dalek::Signer;
+        use sha2::{Digest, Sha256};
+        let manifest_sha256 = format!("{:x}", Sha256::digest(manifest_body.as_bytes()));
+        let provenance_sha256 = "aa".repeat(32);
+        let scores_sha256 = "bb".repeat(32);
+        let msg = format!(
+            "threatclaw-rules-v1\n{version}\n{manifest_sha256}\n{expires}\n{provenance_sha256}\n{scores_sha256}"
+        );
+        let sig = sk.sign(msg.as_bytes());
+        serde_json::json!({
+            "schema": "threatclaw-rules-v1",
+            "version": version,
+            "manifest_sha256": manifest_sha256,
+            "expires": expires,
+            "provenance_sha256": provenance_sha256,
+            "scores_sha256": scores_sha256,
+            "sig_b64": B64.encode(sig.to_bytes()),
+            "public_key_b64": B64.encode(sk.verifying_key().to_bytes()),
+        })
+        .to_string()
+    }
+
+    fn fixed_now() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339("2026-07-06T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    }
+
+    #[test]
+    fn pinned_pubkey_matches_published_base64() {
+        // Guards the hand-transcribed byte array against the published key.
+        use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
+        let decoded = B64
+            .decode("XyAFnjf8gY3AMdUpvkmrP/SUxb0YmgzNSZY1KJZDUvE=")
+            .unwrap();
+        assert_eq!(decoded.as_slice(), &RULES_SIGNING_PUBKEY);
+    }
+
+    #[test]
+    fn rules_signature_accepts_a_valid_manifest() {
+        let sk = ephemeral_key();
+        let pk = sk.verifying_key().to_bytes();
+        let manifest = r#"{"version":"2026.07.03","packs":[]}"#;
+        let sig = make_sig_json(&sk, "2026.07.03", manifest, "2999-01-01T00:00:00Z");
+        let v = verify_rules_signature(&pk, manifest, &sig, Some("2026.07.01"), fixed_now());
+        assert_eq!(v, Ok("2026.07.03".to_string()));
+    }
+
+    #[test]
+    fn rules_signature_rejects_a_wrong_key() {
+        let sk = ephemeral_key();
+        let other = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32])
+            .verifying_key()
+            .to_bytes();
+        let manifest = r#"{"version":"2026.07.03","packs":[]}"#;
+        let sig = make_sig_json(&sk, "2026.07.03", manifest, "2999-01-01T00:00:00Z");
+        assert!(verify_rules_signature(&other, manifest, &sig, None, fixed_now()).is_err());
+    }
+
+    #[test]
+    fn rules_signature_rejects_a_tampered_manifest() {
+        let sk = ephemeral_key();
+        let pk = sk.verifying_key().to_bytes();
+        let manifest = r#"{"version":"2026.07.03","packs":[]}"#;
+        let sig = make_sig_json(&sk, "2026.07.03", manifest, "2999-01-01T00:00:00Z");
+        // Swap the manifest after signing -> sha256 no longer matches.
+        let tampered = r#"{"version":"2026.07.03","packs":[{"pack":"evil"}]}"#;
+        assert!(verify_rules_signature(&pk, tampered, &sig, None, fixed_now()).is_err());
+    }
+
+    #[test]
+    fn rules_signature_rejects_an_expired_signature() {
+        let sk = ephemeral_key();
+        let pk = sk.verifying_key().to_bytes();
+        let manifest = r#"{"version":"2026.07.03","packs":[]}"#;
+        let sig = make_sig_json(&sk, "2026.07.03", manifest, "2000-01-01T00:00:00Z");
+        assert!(verify_rules_signature(&pk, manifest, &sig, None, fixed_now()).is_err());
+    }
+
+    #[test]
+    fn rules_signature_rejects_a_rollback() {
+        let sk = ephemeral_key();
+        let pk = sk.verifying_key().to_bytes();
+        let manifest = r#"{"version":"2026.07.03","packs":[]}"#;
+        let sig = make_sig_json(&sk, "2026.07.03", manifest, "2999-01-01T00:00:00Z");
+        // We already verified a newer version -> refuse the older replay.
+        assert!(
+            verify_rules_signature(&pk, manifest, &sig, Some("2026.07.10"), fixed_now()).is_err()
+        );
+    }
+
+    #[test]
+    fn accepts_the_live_production_signature() {
+        // Real MANIFEST.json + rules-signature.json snapshotted from R2 — proves the
+        // PINNED key accepts a genuinely pipeline-signed manifest end-to-end, so a
+        // real agent will trust the live feed. `now` is fixed inside the snapshot's
+        // validity window (signed 2026-07-06, expires 2026-08-10).
+        let manifest = include_str!("testdata/live-manifest.json");
+        let sig = include_str!("testdata/live-rules-signature.json");
+        let now = chrono::DateTime::parse_from_rfc3339("2026-07-07T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let v = verify_rules_signature(&RULES_SIGNING_PUBKEY, manifest, sig, None, now);
+        assert!(v.is_ok(), "live production signature must verify: {v:?}");
     }
 
     #[test]
