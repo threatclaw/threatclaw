@@ -161,9 +161,19 @@ def get_dns_queries(hours_back=24, per_host=1000, max_total=100000):
         conn.close()
 
 
-def write_finding(skill_id, title, description, severity, category, asset, source, metadata):
-    """Write a ML finding to the findings table. Skip if identical open finding exists."""
-    conn = get_conn()
+def write_finding(skill_id, title, description, severity, category, asset, source, metadata, conn=None):
+    """Write a ML finding to the findings table. Skip if identical open finding exists.
+
+    ING-H4 — When `conn` is provided, reuse it instead of opening a new
+    connection per call. The finding-creation loops (anomaly / DGA / clustering)
+    pass one shared connection so a scoring cycle no longer opens one PostgreSQL
+    connection per finding (which, at fleet scale, exhausts max_connections).
+    Caller owns a passed-in connection's lifecycle; a None `conn` is opened and
+    closed here (back-compat).
+    """
+    own = conn is None
+    if own:
+        conn = get_conn()
     try:
         with conn.cursor() as cur:
             # Dedup: don't create if same title + asset already open
@@ -183,7 +193,8 @@ def write_finding(skill_id, title, description, severity, category, asset, sourc
             conn.commit()
             return cur.fetchone()[0]
     finally:
-        conn.close()
+        if own:
+            conn.close()
 
 
 def write_ml_score(asset_id, score, reason, features):

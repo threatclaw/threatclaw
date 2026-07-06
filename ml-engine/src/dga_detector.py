@@ -407,40 +407,46 @@ def create_findings_for_dga(scores):
     """Create findings for detected DGA domains."""
     findings_created = 0
 
-    for item in scores:
-        if not item["is_dga"]:
-            continue
+    # ING-H4 — une seule connexion partagée pour tout le lot de findings.
+    conn = db.get_conn()
+    try:
+        for item in scores:
+            if not item["is_dga"]:
+                continue
 
-        backend_label = item.get("backend", "rf")
+            backend_label = item.get("backend", "rf")
 
-        db.write_finding(
-            skill_id="ml-dga-detector",
-            title=f"DGA suspect: {item['domain']} (score {item['dga_score']:.2f} [{backend_label}])",
-            description=(
-                f"Le domaine '{item['domain']}' a les caracteristiques d'un nom genere "
-                f"algorithmiquement (DGA).\n"
-                f"SLD analyse: {item.get('sld', '?')}\n"
-                f"Score DGA: {item['dga_score']:.2f} (seuil: 0.70)\n"
-                f"Backend: {backend_label}\n\n"
-                f"Les DGA sont utilises par les botnets et ransomwares pour generer des "
-                f"domaines C2 differents chaque jour, rendant le blocage par liste noire "
-                f"impossible.\n\n"
-                f"Action recommandee: verifier la machine qui resout ce domaine, "
-                f"analyser le trafic reseau, bloquer si confirme."
-            ),
-            severity="HIGH",
-            category="ml-dga",
-            asset=None,
-            source=f"ML DGA Detector ({backend_label})",
-            metadata={
-                "dga_score": item["dga_score"],
-                "domain": item["domain"],
-                "sld": item.get("sld"),
-                "backend": backend_label,
-                "features": item.get("features", {}),
-                "mitre": ["T1568.002"],
-            },
-        )
-        findings_created += 1
+            db.write_finding(
+                skill_id="ml-dga-detector",
+                title=f"DGA suspect: {item['domain']} (score {item['dga_score']:.2f} [{backend_label}])",
+                description=(
+                    f"Le domaine '{item['domain']}' a les caracteristiques d'un nom genere "
+                    f"algorithmiquement (DGA).\n"
+                    f"SLD analyse: {item.get('sld', '?')}\n"
+                    f"Score DGA: {item['dga_score']:.2f} (seuil: 0.70)\n"
+                    f"Backend: {backend_label}\n\n"
+                    f"Les DGA sont utilises par les botnets et ransomwares pour generer des "
+                    f"domaines C2 differents chaque jour, rendant le blocage par liste noire "
+                    f"impossible.\n\n"
+                    f"Action recommandee: verifier la machine qui resout ce domaine, "
+                    f"analyser le trafic reseau, bloquer si confirme."
+                ),
+                severity="HIGH",
+                category="ml-dga",
+                asset=None,
+                source=f"ML DGA Detector ({backend_label})",
+                metadata={
+                    "dga_score": item["dga_score"],
+                    "domain": item["domain"],
+                    "sld": item.get("sld"),
+                    "backend": backend_label,
+                    "features": item.get("features", {}),
+                    "mitre": ["T1568.002"],
+                },
+                conn=conn,
+            )
+            findings_created += 1
+    finally:
+        conn.close()
 
     return findings_created

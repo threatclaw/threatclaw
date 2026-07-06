@@ -138,55 +138,62 @@ def create_findings_for_outliers(result):
     """Create findings for assets that deviate from their cluster."""
     findings_created = 0
 
-    for outlier in result.get("outliers", []):
-        title = f"Behavioral outlier: {outlier['asset_id']} deviates from {outlier['cluster_size']} similar assets"
-        description = (
-            f"Asset '{outlier['asset_id']}' is {outlier['sigma']}σ away from its peer group "
-            f"(cluster of {outlier['cluster_size']} assets with similar behavior).\n"
-            f"Main deviation: {outlier['reason']}\n"
-            f"Distance: {outlier['distance']} (threshold: {outlier['threshold']})"
-        )
+    # ING-H4 — une seule connexion partagée pour les deux boucles de findings.
+    conn = db.get_conn()
+    try:
+        for outlier in result.get("outliers", []):
+            title = f"Behavioral outlier: {outlier['asset_id']} deviates from {outlier['cluster_size']} similar assets"
+            description = (
+                f"Asset '{outlier['asset_id']}' is {outlier['sigma']}σ away from its peer group "
+                f"(cluster of {outlier['cluster_size']} assets with similar behavior).\n"
+                f"Main deviation: {outlier['reason']}\n"
+                f"Distance: {outlier['distance']} (threshold: {outlier['threshold']})"
+            )
 
-        severity = "HIGH" if outlier["sigma"] > 3 else "MEDIUM"
+            severity = "HIGH" if outlier["sigma"] > 3 else "MEDIUM"
 
-        db.write_finding(
-            skill_id="ml-clustering",
-            title=title,
-            description=description,
-            severity=severity,
-            category="ml-clustering",
-            asset=outlier["asset_id"],
-            source="ML DBSCAN Clustering",
-            metadata={
-                "cluster_id": outlier["cluster_id"],
-                "cluster_size": outlier["cluster_size"],
-                "distance": outlier["distance"],
-                "sigma": outlier["sigma"],
-                "top_deviation": outlier["top_deviation_feature"],
-            },
-        )
-        findings_created += 1
-        logger.warning("OUTLIER: %s — %s", outlier["asset_id"], outlier["reason"])
+            db.write_finding(
+                skill_id="ml-clustering",
+                title=title,
+                description=description,
+                severity=severity,
+                category="ml-clustering",
+                asset=outlier["asset_id"],
+                source="ML DBSCAN Clustering",
+                metadata={
+                    "cluster_id": outlier["cluster_id"],
+                    "cluster_size": outlier["cluster_size"],
+                    "distance": outlier["distance"],
+                    "sigma": outlier["sigma"],
+                    "top_deviation": outlier["top_deviation_feature"],
+                },
+                conn=conn,
+            )
+            findings_created += 1
+            logger.warning("OUTLIER: %s — %s", outlier["asset_id"], outlier["reason"])
 
-    # Also create findings for noise assets (don't fit any cluster)
-    for noise_asset in result.get("noise", []):
-        # Try to get hostname for better readability
-        asset_info = db.get_asset_info(noise_asset) if hasattr(db, 'get_asset_info') else None
-        hostname = asset_info.get("hostname", "") if asset_info else ""
-        display_name = f"{hostname} ({noise_asset})" if hostname else noise_asset
-        db.write_finding(
-            skill_id="ml-clustering",
-            title=f"Unclustered asset: {display_name} — unique behavioral pattern",
-            description=f"Asset '{display_name}' has a unique behavioral pattern that doesn't match "
-                        f"any other asset group. This could indicate a compromised device, "
-                        f"a misconfigured service, or a new device not yet profiled. "
-                        f"Review this asset in the Assets page.",
-            severity="LOW",
-            category="ml-clustering",
-            asset=noise_asset,
-            source="ML DBSCAN Clustering",
-            metadata={"noise": True, "hostname": hostname},
-        )
-        findings_created += 1
+        # Also create findings for noise assets (don't fit any cluster)
+        for noise_asset in result.get("noise", []):
+            # Try to get hostname for better readability
+            asset_info = db.get_asset_info(noise_asset) if hasattr(db, 'get_asset_info') else None
+            hostname = asset_info.get("hostname", "") if asset_info else ""
+            display_name = f"{hostname} ({noise_asset})" if hostname else noise_asset
+            db.write_finding(
+                skill_id="ml-clustering",
+                title=f"Unclustered asset: {display_name} — unique behavioral pattern",
+                description=f"Asset '{display_name}' has a unique behavioral pattern that doesn't match "
+                            f"any other asset group. This could indicate a compromised device, "
+                            f"a misconfigured service, or a new device not yet profiled. "
+                            f"Review this asset in the Assets page.",
+                severity="LOW",
+                category="ml-clustering",
+                asset=noise_asset,
+                source="ML DBSCAN Clustering",
+                metadata={"noise": True, "hostname": hostname},
+                conn=conn,
+            )
+            findings_created += 1
+    finally:
+        conn.close()
 
     return findings_created

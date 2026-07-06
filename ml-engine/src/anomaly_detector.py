@@ -185,34 +185,40 @@ def create_findings_for_anomalies(scores, threshold=0.7):
     """Create findings in the DB for anomalous assets."""
     findings_created = 0
 
-    for asset_id, data in scores.items():
-        if data["score"] < threshold:
-            continue
+    # ING-H4 — une seule connexion partagée pour tout le lot de findings.
+    conn = db.get_conn()
+    try:
+        for asset_id, data in scores.items():
+            if data["score"] < threshold:
+                continue
 
-        severity = "CRITICAL" if data["score"] > 0.9 else "HIGH" if data["score"] > 0.8 else "MEDIUM"
+            severity = "CRITICAL" if data["score"] > 0.9 else "HIGH" if data["score"] > 0.8 else "MEDIUM"
 
-        # Build description from deviations
-        desc_parts = [f"Anomaly score: {data['score']:.2f} ({data['reason']})"]
-        for d in data.get("deviations", [])[:3]:
-            desc_parts.append(f"  - {d['feature']}: {d['current']} ({d['sigma']}σ {d['direction']} baseline)")
+            # Build description from deviations
+            desc_parts = [f"Anomaly score: {data['score']:.2f} ({data['reason']})"]
+            for d in data.get("deviations", [])[:3]:
+                desc_parts.append(f"  - {d['feature']}: {d['current']} ({d['sigma']}σ {d['direction']} baseline)")
 
-        description = "\n".join(desc_parts)
+            description = "\n".join(desc_parts)
 
-        db.write_finding(
-            skill_id="ml-anomaly-detector",
-            title=f"Behavioral anomaly detected: {asset_id} (score {data['score']:.2f})",
-            description=description,
-            severity=severity,
-            category="ml-anomaly",
-            asset=asset_id,
-            source="ML Isolation Forest",
-            metadata={
-                "ml_score": data["score"],
-                "deviations": data.get("deviations", []),
-                "features": data["features"],
-            },
-        )
-        findings_created += 1
-        logger.warning("ANOMALY: %s — score %.2f — %s", asset_id, data["score"], data["reason"])
+            db.write_finding(
+                skill_id="ml-anomaly-detector",
+                title=f"Behavioral anomaly detected: {asset_id} (score {data['score']:.2f})",
+                description=description,
+                severity=severity,
+                category="ml-anomaly",
+                asset=asset_id,
+                source="ML Isolation Forest",
+                metadata={
+                    "ml_score": data["score"],
+                    "deviations": data.get("deviations", []),
+                    "features": data["features"],
+                },
+                conn=conn,
+            )
+            findings_created += 1
+            logger.warning("ANOMALY: %s — score %.2f — %s", asset_id, data["score"], data["reason"])
+    finally:
+        conn.close()
 
     return findings_created
