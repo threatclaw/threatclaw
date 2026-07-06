@@ -111,6 +111,19 @@ pub fn over_backpressure(depth: i64) -> bool {
     depth >= MAX_INGEST_QUEUE_DEPTH
 }
 
+/// ING-H2 — Per-source-type load-shed threshold. One source type that floods the
+/// durable queue is shed at THIS depth — below the global cap — so it is 503'd on
+/// its own bucket before it can starve real-time alert ingestion from the other
+/// sources (an osquery inventory flood must not block zeek/suricata/opnsense
+/// alerts). Sized so a legitimately large fleet's normal backlog never trips it,
+/// yet a runaway single source is contained well under the global ceiling.
+pub(crate) const MAX_INGEST_QUEUE_DEPTH_PER_SOURCE: i64 = 50_000;
+
+/// True when ONE source type's unclaimed backlog is over its per-source cap.
+pub fn over_backpressure_source(depth: i64) -> bool {
+    depth >= MAX_INGEST_QUEUE_DEPTH_PER_SOURCE
+}
+
 /// Decode a gzip body, bounding the decompressed output to `max` bytes
 /// (anti gzip-bomb). Reads at most `max + 1` bytes then fails if the cap is
 /// exceeded, so a hostile small payload cannot inflate into an OOM.
@@ -1465,6 +1478,22 @@ mod tests {
         assert!(!super::over_backpressure(super::MAX_INGEST_QUEUE_DEPTH - 1));
         assert!(super::over_backpressure(super::MAX_INGEST_QUEUE_DEPTH));
         assert!(super::over_backpressure(super::MAX_INGEST_QUEUE_DEPTH + 10_000));
+    }
+
+    #[test]
+    fn test_per_source_backpressure_threshold() {
+        // ING-H2 — le shed par-source déclenche STRICTEMENT sous le plafond
+        // global, sinon il ne protégerait jamais avant le shed global.
+        assert!(super::MAX_INGEST_QUEUE_DEPTH_PER_SOURCE < super::MAX_INGEST_QUEUE_DEPTH);
+        assert!(!super::over_backpressure_source(0));
+        assert!(!super::over_backpressure_source(
+            super::MAX_INGEST_QUEUE_DEPTH_PER_SOURCE - 1
+        ));
+        assert!(super::over_backpressure_source(
+            super::MAX_INGEST_QUEUE_DEPTH_PER_SOURCE
+        ));
+        // Une source sous son plafond ne shed pas alors même que le global est loin.
+        assert!(!super::over_backpressure_source(super::MAX_INGEST_QUEUE_DEPTH_PER_SOURCE - 10_000));
     }
 
     #[test]

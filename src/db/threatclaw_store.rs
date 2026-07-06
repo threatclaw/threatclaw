@@ -1230,6 +1230,13 @@ pub trait ThreatClawStore: Send + Sync {
         Ok(0)
     }
 
+    /// ING-H2 — Unclaimed queued payloads for ONE source type, for per-source
+    /// backpressure. Default 0 (per-source shed disabled on backends without the
+    /// durable queue, e.g. the in-memory test backend).
+    async fn ingest_queue_depth_for_source(&self, _source: &str) -> Result<i64, DatabaseError> {
+        Ok(0)
+    }
+
     /// Batch-drain up to `limit` rows from the fluent-bit staging table into
     /// `logs` (Phase 2b T7 — replaces the per-row trigger). Returns rows moved.
     /// Default: no-op (the staging table is PostgreSQL-only).

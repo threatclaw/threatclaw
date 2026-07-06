@@ -6353,10 +6353,27 @@ pub async fn webhook_ingest_handler(
     if !authed {
         return StatusCode::OK; // silent drop, no oracle (unchanged)
     }
+    // ING-H2 — shed PAR SOURCE d'abord : un flood sur un type de source (ex.
+    // inventaire osquery) est 503 sur SON propre bucket, avant d'atteindre le
+    // plafond global, pour qu'il ne puisse pas noyer la queue et affamer
+    // l'ingestion temps réel des autres sources (alertes IDS zeek/suricata,
+    // firewall opnsense). Le plafond global reste le garde-fou du nœud.
+    match store.ingest_queue_depth_for_source(&source).await {
+        Ok(d) if crate::connectors::webhook_ingest::over_backpressure_source(d) => {
+            tracing::warn!(
+                "WEBHOOK: per-source backpressure shed for {} (source queue depth {})",
+                source,
+                d
+            );
+            crate::ingest::metrics::inc_backpressure_rejected();
+            return StatusCode::SERVICE_UNAVAILABLE; // 503 — cette source seule; les autres continuent
+        }
+        _ => {}
+    }
     match store.ingest_queue_depth().await {
         Ok(d) if crate::connectors::webhook_ingest::over_backpressure(d) => {
             tracing::warn!(
-                "WEBHOOK: backpressure shed for {} (queue depth {})",
+                "WEBHOOK: global backpressure shed for {} (queue depth {})",
                 source,
                 d
             );
