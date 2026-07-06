@@ -18,6 +18,13 @@ TC_TOKEN="${TC_TOKEN:-}"
 # Secret d'enrôlement par-agent (recommandé). Si présent, le poste s'enrôle et
 # reçoit un token UNIQUE lié à son identité — plus de token de flotte partagé.
 TC_ENROLL_SECRET="${TC_ENROLL_SECRET:-}"
+# FRONT-H2 — Épinglage TLS (clé publique). Le serveur TC est self-signed : sans
+# épinglage, `curl -k` accepte N'IMPORTE QUEL certificat → un MITM peut se faire
+# passer pour le serveur. Si `--pin sha256//BASE64` (ou TC_PIN) est fourni, on
+# vérifie la clé du serveur au premier contact (aucun TOFU). Sinon on CAPTURE la
+# clé à l'install (TOFU) et on épingle tous les échanges suivants — un MITM
+# ultérieur (menace réaliste hors fenêtre d'install) est alors rejeté.
+TC_PIN="${TC_PIN:-}"
 AGENT_ID=""
 # We don't pin osquery's version: pkg.osquery.io only keeps the latest in its
 # apt/yum repos, so a `=5.12.1-*` pin breaks the install entirely the day
@@ -44,10 +51,13 @@ while [[ $# -gt 0 ]]; do
     --token-file)          TC_TOKEN="$(cat "$2")"; shift 2 ;;
     --enroll-secret)       TC_ENROLL_SECRET="$2"; shift 2 ;;
     --enroll-secret-file)  TC_ENROLL_SECRET="$(cat "$2")"; shift 2 ;;
+    --pin)                 TC_PIN="$2"; shift 2 ;;
     --id)                  AGENT_ID="$2"; shift 2 ;;
     --help)
-      echo "Usage: install-agent.sh --url https://TC:8445 --enroll-secret SECRET"
+      echo "Usage: install-agent.sh --url https://TC:8445 --enroll-secret SECRET [--pin sha256//BASE64]"
       echo "   (legacy) install-agent.sh --url https://TC:8445 --token TOKEN [--id AGENT_ID]"
+      echo "  --pin  épingle la clé publique TLS du serveur (anti-MITM). Sans --pin,"
+      echo "         la clé est capturée à l'install (TOFU) et affichée pour un futur --pin."
       exit 0 ;;
     *) shift ;;
   esac
@@ -75,6 +85,56 @@ fi
 if [ "$(id -u)" -ne 0 ]; then
   warn "This script must be run as root (sudo)"
   exit 1
+fi
+
+# ── FRONT-H2 — Résolution de l'épinglage TLS (clé publique du serveur) ──
+# Calcule le pin SPKI (SHA-256 de la SubjectPublicKeyInfo au format DER, base64)
+# du certificat présenté par le serveur — exactement la formule attendue par
+# `curl --pinnedpubkey`. Ce pin est ensuite exigé sur CHAQUE appel (enroll, ping,
+# manifest, ingest). `curl` vérifie `--pinnedpubkey` MÊME avec `-k` : on garde
+# `-k` pour ignorer la chaîne CA (cert self-signed) tout en imposant la clé
+# exacte. Un MITM présentant un autre certificat (autre clé) est donc rejeté.
+compute_server_pin() {
+  local host="$1" port="$2"
+  echo | openssl s_client -connect "${host}:${port}" -servername "$host" 2>/dev/null \
+    | openssl x509 -pubkey -noout 2>/dev/null \
+    | openssl pkey -pubin -outform der 2>/dev/null \
+    | openssl dgst -sha256 -binary 2>/dev/null \
+    | openssl base64 2>/dev/null | tr -d '\n'
+}
+
+TC_CURL_PIN=""   # Options curl d'épinglage, injectées dans chaque appel (vide = repli -k).
+# host:port depuis TC_URL (https://IP:8445 → IP 8445 ; sans port → 443).
+tc_pin_hostport=$(printf '%s' "$TC_URL" | sed -E 's|^https?://||; s|/.*$||')
+case "$tc_pin_hostport" in
+  *:*) tc_pin_host="${tc_pin_hostport%%:*}"; tc_pin_port="${tc_pin_hostport##*:}" ;;
+  *)   tc_pin_host="$tc_pin_hostport"; tc_pin_port=443 ;;
+esac
+TC_PIN="${TC_PIN#sha256//}"   # accepte `sha256//BASE64` ou `BASE64`.
+if command -v openssl >/dev/null 2>&1; then
+  tc_actual_pin=$(compute_server_pin "$tc_pin_host" "$tc_pin_port")
+  if [ -z "$tc_actual_pin" ]; then
+    warn "TLS pinning: impossible de lire le certificat de $tc_pin_host:$tc_pin_port. Repli sur -k (pas de protection MITM) — vérifiez l'URL/port."
+  elif [ -n "$TC_PIN" ]; then
+    # Pin attendu fourni → vérification stricte, aucun TOFU.
+    if [ "$tc_actual_pin" = "$TC_PIN" ]; then
+      TC_CURL_PIN="--pinnedpubkey sha256//$TC_PIN"
+      log "TLS pinning: clé serveur vérifiée (pin fourni)."
+    else
+      warn "TLS pinning: MISMATCH — la clé de $tc_pin_host:$tc_pin_port ne correspond PAS au --pin attendu."
+      warn "  attendu : sha256//$TC_PIN"
+      warn "  reçu    : sha256//$tc_actual_pin"
+      warn "Interception possible (MITM). Rien n'a été installé."; exit 1
+    fi
+  else
+    # Aucun pin fourni → TOFU : capture la clé actuelle et l'épingle pour la suite.
+    TC_PIN="$tc_actual_pin"
+    TC_CURL_PIN="--pinnedpubkey sha256//$TC_PIN"
+    info "TLS pinning: clé serveur capturée (TOFU) — sha256//$TC_PIN"
+    info "  Pour supprimer le TOFU, relancez avec: --pin sha256//$TC_PIN  (idéal en GPO/masse)"
+  fi
+else
+  warn "TLS pinning: openssl introuvable — repli sur -k (pas de protection MITM). Installez openssl pour épingler."
 fi
 
 # ── Pre-flight ──
@@ -107,7 +167,7 @@ if [ -n "$TC_ENROLL_SECRET" ]; then
   if [ "$need_enroll" = "1" ]; then
     info "Enrolling this host with ThreatClaw at $TC_URL ..."
     enroll_hostname="$(hostname -s)"
-    enroll_resp=$(curl -sk --max-time 15 -w '\n%{http_code}' \
+    enroll_resp=$(curl -sk $TC_CURL_PIN --max-time 15 -w '\n%{http_code}' \
       -X POST -H "X-Enroll-Secret: $TC_ENROLL_SECRET" -H "Content-Type: application/json" \
       --data "{\"hostname\":\"${enroll_hostname}\",\"platform\":\"linux\"}" \
       "${TC_URL}/api/tc/agent/enroll" 2>/dev/null)
@@ -140,7 +200,7 @@ else
     warn "Pre-flight SKIPPED (TC_SKIP_PREFLIGHT set) — proceeding without checking."
     ping_code="skip"; ping_body=""
   else
-    ping_resp=$(curl -sk --max-time 10 -w '\n%{http_code}' \
+    ping_resp=$(curl -sk $TC_CURL_PIN --max-time 10 -w '\n%{http_code}' \
       -X POST -H "X-Webhook-Token: $TC_TOKEN" \
       "${TC_URL}/api/tc/webhook/ping/osquery" 2>/dev/null)
     ping_code=$(printf '%s' "$ping_resp" | tail -n1)
@@ -352,6 +412,7 @@ create_sync_script() {
   local tc_url="$TC_URL"
   local tc_token="$TC_TOKEN"
   local agent_id="$AGENT_ID"
+  local tc_pin="$TC_PIN"   # FRONT-H2 — pin résolu (bare base64) propagé au sync.
 
   cat > "$script" << SYNCEOF
 #!/usr/bin/env bash
@@ -364,6 +425,13 @@ TC_URL="$tc_url"
 TC_TOKEN="$tc_token"
 AGENT_ID="$agent_id"
 HOSTNAME="\$(hostname -s)"
+
+# FRONT-H2 — Épinglage TLS: exige la clé publique du serveur sur chaque appel.
+# Vérifié par curl même avec -k (on garde -k pour le cert self-signed). Vide =
+# repli sans épinglage (openssl absent à l'install).
+TC_PIN="$tc_pin"
+TC_CURL_PIN=""
+[ -n "\$TC_PIN" ] && TC_CURL_PIN="--pinnedpubkey sha256//\$TC_PIN"
 
 # Run an osqueryi query and return its JSON output (or "[]" on failure).
 # stderr is dropped — osquery prints harmless config-flag warnings there.
@@ -482,7 +550,7 @@ PYEOF
 # Negotiate gzip: only compress if the server advertises accepts_gzip in its
 # manifest (version-skew safe). Substring match avoids a jq dependency.
 TC_ACCEPTS_GZIP=false
-MANIFEST=\$(curl -fsSL -k --max-time 10 -H "X-Webhook-Token: \$TC_TOKEN" -H "X-Agent-Id: \$AGENT_ID" \\
+MANIFEST=\$(curl -fsSL -k \$TC_CURL_PIN --max-time 10 -H "X-Webhook-Token: \$TC_TOKEN" -H "X-Agent-Id: \$AGENT_ID" \\
   "\${TC_URL}/api/tc/agent/manifest?platform=linux&token=\$TC_TOKEN" 2>/dev/null || echo "")
 case "\$MANIFEST" in
   *'"accepts_gzip":true'*|*'"accepts_gzip": true'*) TC_ACCEPTS_GZIP=true ;;
@@ -500,7 +568,7 @@ if [ "\$TC_ACCEPTS_GZIP" = "true" ] && command -v gzip >/dev/null 2>&1; then
     TC_ENC_HEADER="-H Content-Encoding:gzip"
   fi
 fi
-TC_HTTP=\$(curl -sk -o /dev/null -w '%{http_code}' -X POST \\
+TC_HTTP=\$(curl -sk \$TC_CURL_PIN -o /dev/null -w '%{http_code}' -X POST \\
   -H "Content-Type: application/json" \\
   -H "X-Webhook-Token: \$TC_TOKEN" \\
   -H "X-Agent-Id: \$AGENT_ID" \\
