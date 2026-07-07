@@ -6,6 +6,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [1.0.61-beta] — 2026-07-07
+
+Security hardening across agents, installers, ingestion, detection updates and the dashboard. No action is required beyond the usual update; re-enrolling agents is recommended to pick up the new machine-bound identities.
+
+### Security
+
+**Identity & communications**
+- Agents enroll with a unique, machine-bound identity (no more shared fleet token): a compromised identity can no longer impersonate another.
+- TLS pinning on the Linux agent and installed-binary signature verification on Windows guard against interception (MITM) during install and sync.
+
+**Signed detection updates**
+- Rule and intelligence packs are cryptographically signed and verified before they are applied: a compromised distribution point can no longer poison detection.
+
+**Data & AI protection**
+- Endpoint-reported data is neutralized before any AI analysis, so manipulated log fields cannot influence the assistant.
+- Sensitive-data anonymization is enforced by destination before any cloud-AI call.
+
+**Ingestion resilience**
+- Brute-force and scan detection hardened against timestamp manipulation.
+- Per-source back-pressure prevents a noisy source from drowning out real-time ingestion from the others.
+- A declared/quarantine inventory boundary filters scoring and incidents, guarding against undeclared-host flooding.
+
+**Platform hardening**
+- Incident-approval actions are write-protected (anti-CSRF).
+- Skill outbound requests validate and pin the resolved address (anti-SSRF toward internal/metadata endpoints).
+- Strengthened Content-Security-Policy on the dashboard.
+- The ML engine runs unprivileged, with hardened model loading.
+
 ## [1.0.60-beta] — 2026-06-30
 
 ### Added
