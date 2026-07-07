@@ -19,7 +19,7 @@ $ErrorActionPreference = "Stop"
 $OsqueryVersion = "5.12.1"
 $SyncInterval   = 5  # minutes
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 function Write-TC {
     param([string]$Msg, [string]$Color = "Green")
@@ -54,7 +54,7 @@ function Expand-ZipCompat {
     }
 }
 
-# ── Banner ───────────────────────────────────────────────────────────────────
+# -- Banner -------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "  +==========================================+" -ForegroundColor Cyan
@@ -63,7 +63,7 @@ Write-Host "  |   Endpoint Security - Windows Edition     |" -ForegroundColor Cy
 Write-Host "  +==========================================+" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Validate params ──────────────────────────────────────────────────────────
+# -- Validate params ----------------------------------------------------------
 
 if (-not $Url) {
     Write-TCError "Missing -Url (or set env:TC_URL before running)"
@@ -86,16 +86,16 @@ Write-TC "TC URL:    $Url"
 Write-TC "Agent ID:  $AgentId"
 Write-Host ""
 
-# ── 0. Pre-flight ────────────────────────────────────────────────────────────
+# -- 0. Pre-flight ------------------------------------------------------------
 # Verify the server is reachable AND the token is valid BEFORE touching the
 # system. Fail fast with a clear message so a wrong URL/port (often :8445, not
 # 443) or a bad token never leaves a half-configured agent that silently fails.
 Write-TC "Pre-flight: checking connection and token at $Url ..."
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-# FRONT-C1 : le bypass de validation TLS est SCOPÉ au seul serveur TC (cert
-# self-signed). TOUS les autres téléchargements (MSI osquery, Sysmon, GitHub)
-# sont validés normalement contre les CA publiques — sinon un attaquant on-path
-# pourrait servir un MSI piégé, exécuté ensuite en SYSTEM par msiexec.
+# FRONT-C1 : le bypass de validation TLS est SCOPE au seul serveur TC (cert
+# self-signed). TOUS les autres telechargements (MSI osquery, Sysmon, GitHub)
+# sont valides normalement contre les CA publiques - sinon un attaquant on-path
+# pourrait servir un MSI piege, execute ensuite en SYSTEM par msiexec.
 try {
     Add-Type -TypeDefinition @"
 using System;
@@ -106,7 +106,7 @@ public class TcPreflightCertPolicy : ICertificatePolicy {
     public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) {
         if (req != null && req.RequestUri != null &&
             string.Equals(req.RequestUri.Host, TcHost, StringComparison.OrdinalIgnoreCase))
-            return true;            // serveur TC self-signed : bypass ciblé
+            return true;            // serveur TC self-signed : bypass cible
         return problem == 0;        // tout le reste : validation stricte
     }
 }
@@ -120,12 +120,12 @@ try {
 $enrolled = $false
 $CredFile = "C:\ProgramData\ThreatClaw\agent.cred"
 if ($EnrollSecret) {
-    # Enrôlement par-agent (idempotent). token UNIQUE lié à l'agent_id (généré
-    # serveur) + hostname. Remplace le token de flotte partagé (findings ING-C1/H6).
-    # Fait office de pré-flight. IDEMPOTENCE (déploiement GPO / ré-exécution) : si
-    # des identifiants enrôlés existent déjà ($CredFile), on les RÉUTILISE au lieu
-    # de créer une nouvelle identité à chaque run. $env:TC_FORCE_ENROLL=1 force un
-    # nouvel enrôlement (rotation d'identité).
+    # Enrolement par-agent (idempotent). token UNIQUE lie a l'agent_id (genere
+    # serveur) + hostname. Remplace le token de flotte partage (findings ING-C1/H6).
+    # Fait office de pre-flight. IDEMPOTENCE (deploiement GPO / re-execution) : si
+    # des identifiants enroles existent deja ($CredFile), on les REUTILISE au lieu
+    # de creer une nouvelle identite a chaque run. $env:TC_FORCE_ENROLL=1 force un
+    # nouvel enrolement (rotation d'identite).
     if ((-not $env:TC_FORCE_ENROLL) -and (Test-Path $CredFile)) {
         try {
             $c = Get-Content -Raw $CredFile | ConvertFrom-Json
@@ -148,7 +148,7 @@ if ($EnrollSecret) {
                 $AgentId  = $er.agent_id
                 $Token    = $er.token
                 $enrolled = $true
-                # Persiste l'identité (ACL SYSTEM+Administrators) → idempotence.
+                # Persiste l'identite (ACL SYSTEM+Administrators) -> idempotence.
                 New-Item -ItemType Directory -Force -Path (Split-Path $CredFile) | Out-Null
                 @{ agent_id = $AgentId; token = $Token } | ConvertTo-Json -Compress | Set-Content -Path $CredFile -Encoding UTF8
                 try { icacls $CredFile /inheritance:r /grant:r "SYSTEM:F" "BUILTIN\Administrators:F" | Out-Null } catch { }
@@ -184,7 +184,7 @@ if ($env:TC_SKIP_PREFLIGHT) {
         $tcBody = "$($r.Content)"
     } catch {
         # A thrown HTTP response (401/403/404/5xx...) still means the server is
-        # reachable — read its body so we can look for our marker.
+        # reachable - read its body so we can look for our marker.
         if ($_.Exception.Response) {
             $tcReachable = $true
             try {
@@ -195,7 +195,7 @@ if ($env:TC_SKIP_PREFLIGHT) {
     }
 }
 if ($env:TC_DEBUG) { Write-TC ("DEBUG pre-flight: reachable={0} body={1}" -f $tcReachable, $tcBody) -Color Cyan }
-# Decide ONLY on our `tc_preflight` body marker, never on the HTTP status — auth
+# Decide ONLY on our `tc_preflight` body marker, never on the HTTP status - auth
 # middleware, proxies and WAFs inject their own codes (a server without this
 # endpoint returns 401; a WAF may return 403). Only an explicit 'bad_token' from
 # our endpoint aborts on the token; only total unreachability aborts on connectivity.
@@ -211,7 +211,7 @@ if ($tcBody -match 'bad_token') {
 }
 Write-Host ""
 
-# ── 1. Install osquery ──────────────────────────────────────────────────────
+# -- 1. Install osquery ------------------------------------------------------
 
 $OsqueryBin = "C:\Program Files\osquery\osqueryd\osqueryd.exe"
 $OsqueryI   = "C:\Program Files\osquery\osqueryi.exe"
@@ -231,15 +231,15 @@ if (Test-Path $OsqueryBin) {
         Write-TCError "Failed to download osquery from $msiUrl"
     }
 
-    # FRONT-C1 : vérifier la signature Authenticode du MSI AVANT de l'exécuter en
-    # SYSTEM. Un MSI servi par un MITM n'aura pas de signature valide chaînée à une
-    # CA de confiance. Plus robuste qu'un hash figé (survit aux rotations de version
-    # osquery). Override possible via TC_SKIP_SIG_CHECK (à tes risques).
+    # FRONT-C1 : verifier la signature Authenticode du MSI AVANT de l'executer en
+    # SYSTEM. Un MSI servi par un MITM n'aura pas de signature valide chainee a une
+    # CA de confiance. Plus robuste qu'un hash fige (survit aux rotations de version
+    # osquery). Override possible via TC_SKIP_SIG_CHECK (a tes risques).
     if (-not $env:TC_SKIP_SIG_CHECK) {
         $sig = Get-AuthenticodeSignature $msiPath
         if ($sig.Status -ne 'Valid') {
             Remove-Item $msiPath -Force -ErrorAction SilentlyContinue
-            Write-TCError "osquery MSI: signature Authenticode INVALIDE ($($sig.Status)) — possible MITM. Rien n'a ete installe. (TC_SKIP_SIG_CHECK=1 pour forcer)"
+            Write-TCError "osquery MSI: signature Authenticode INVALIDE ($($sig.Status)) - possible MITM. Rien n'a ete installe. (TC_SKIP_SIG_CHECK=1 pour forcer)"
         }
         Write-TC "osquery MSI signature verifiee ($($sig.SignerCertificate.Subject))"
     }
@@ -269,7 +269,7 @@ if (Test-Path $OsqueryBin) {
 $SysmonBin    = "C:\Windows\Sysmon64.exe"
 $SysmonConf   = "C:\ProgramData\ThreatClaw\sysmon-config.xml"
 $SysmonZipUrl = "https://download.sysinternals.com/files/Sysmon.zip"
-# Reference SwiftOnSecurity baseline — vendored at install time. If raw
+# Reference SwiftOnSecurity baseline - vendored at install time. If raw
 # github is unreachable from the endpoint, the install still proceeds
 # with the minimal config below.
 $SysmonConfUrl = "https://raw.githubusercontent.com/SwiftOnSecurity/sysmon-config/master/sysmonconfig-export.xml"
@@ -287,7 +287,7 @@ $SysmonMinConfig = @'
 </Sysmon>
 '@
 
-# Always (re)fetch the config — this is just a file write, safe on reinstall.
+# Always (re)fetch the config - this is just a file write, safe on reinstall.
 New-Item -ItemType Directory -Path (Split-Path $SysmonConf) -Force | Out-Null
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -301,7 +301,7 @@ try {
 # Detect an existing Sysmon: the service is named Sysmon64 (x64) or Sysmon
 # (x86), and on a reinstall the binary at $SysmonBin is LOCKED by the running
 # service. In that case we must NOT overwrite it (Copy-Item would fail with
-# "file in use") — just refresh the config in place with `-c`.
+# "file in use") - just refresh the config in place with `-c`.
 $sysmonSvc = Get-Service -Name 'Sysmon64','Sysmon' -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($sysmonSvc -or (Test-Path $SysmonBin)) {
     Write-TC "Sysmon already installed - updating config"
@@ -327,7 +327,7 @@ if ($sysmonSvc -or (Test-Path $SysmonBin)) {
             Expand-ZipCompat -Zip $zipPath -Dest $extractDir
             $sysmonExe = Join-Path $extractDir "Sysmon64.exe"
             $sysmonOk = Test-Path $sysmonExe
-            # FRONT-C1 : Sysmon64.exe est signé Microsoft — vérifier avant de le
+            # FRONT-C1 : Sysmon64.exe est signe Microsoft - verifier avant de le
             # lancer en SYSTEM (un binaire servi par un MITM n'aura pas de
             # signature valide). Sysmon est un plus : on l'ignore si la signature
             # est invalide, sans casser l'install de l'agent (osquery est deja la).
@@ -355,9 +355,9 @@ if ($sysmonSvc -or (Test-Path $SysmonBin)) {
     }
 }
 
-# ── 1b. Advanced audit policy (Phase 3 — Windows coverage) ──────────────────
+# -- 1b. Advanced audit policy (Phase 3 - Windows coverage) ------------------
 # Windows does not GENERATE most ATT&CK-relevant Security events unless the
-# matching advanced-audit subcategory is enabled — collecting them is useless if
+# matching advanced-audit subcategory is enabled - collecting them is useless if
 # they never fire. Enable the subcategories that feed the win-auth detections
 # (logon, account/group management, Kerberos, credential validation, process
 # creation) and turn on command-line capture in 4688.
@@ -365,7 +365,7 @@ if ($sysmonSvc -or (Test-Path $SysmonBin)) {
 # Subcategories are addressed by GUID, NOT by name: the names are localised
 # (a French DC rejects English names), the GUIDs are stable across locales.
 # Idempotent (auditpol /set just re-asserts) and non-fatal (an enhancement, like
-# Sysmon — never fail the whole agent install over it).
+# Sysmon - never fail the whole agent install over it).
 try {
     $auditSubcats = [ordered]@{
         '{0CCE9215-69AE-11D9-BED3-505054503030}' = 'Logon'                          # 4624/4625
@@ -397,9 +397,9 @@ try {
 }
 # NOTE Phase 3: Directory Service Access (4662, DCSync detection / win-auth-003)
 # needs the DS Access subcategory {0CCE923B-...} AND a SACL on the domain object;
-# DC-specific + high volume → handled separately when the event-id set is frozen.
+# DC-specific + high volume -> handled separately when the event-id set is frozen.
 
-# ── 2. Configure osquery ────────────────────────────────────────────────────
+# -- 2. Configure osquery ----------------------------------------------------
 
 $ConfDir  = "C:\Program Files\osquery"
 $ConfFile = Join-Path $ConfDir "osquery.conf"
@@ -503,7 +503,7 @@ if (Get-Service osqueryd -ErrorAction SilentlyContinue) {
     Write-TC "osqueryd service not found - will start after reboot" -Color Yellow
 }
 
-# ── 3. Create sync script ───────────────────────────────────────────────────
+# -- 3. Create sync script ---------------------------------------------------
 
 $SyncDir    = "C:\ProgramData\ThreatClaw"
 $SyncScript = Join-Path $SyncDir "agent-sync.ps1"
@@ -538,7 +538,7 @@ function Run-Query {
 }
 
 # Rotate the agent log if it has grown past TC_LOG_MAX_BYTES (default
-# 5 MB). One rotation slot — agent-sync.log.1 — is kept; the previous
+# 5 MB). One rotation slot - agent-sync.log.1 - is kept; the previous
 # slot is discarded. Linux ships log to journald which handles
 # rotation at the OS level, so this only matters on Windows. Run once
 # at the top of the sync rather than per-line to keep Write-Log
@@ -572,13 +572,13 @@ $patches    = Run-Query "SELECT hotfix_id, description, installed_on FROM patche
 $osVer      = Run-Query "SELECT name, version, build, platform FROM os_version;"
 $ifaces     = Run-Query "SELECT i.interface, i.mac, a.address as ip FROM interface_details i JOIN interface_addresses a ON i.interface = a.interface WHERE i.mac != '00:00:00:00:00:00' AND a.address NOT LIKE '127.%' AND a.address NOT LIKE 'fe80%' AND i.description NOT LIKE 'Hyper-V%' AND i.description NOT LIKE 'WSL%' AND i.description NOT LIKE 'vEthernet%' AND i.description NOT LIKE 'TAP-Windows%';"
 # Security + PowerShell events are collected by CURSOR further down (after the
-# delta state is loaded), not by a fixed -6min window — so a missed sync never
+# delta state is loaded), not by a fixed -6min window - so a missed sync never
 # drops events. Same event-id set as before (coverage extension is a later phase).
 
 # PowerShell's pipeline behaviour around arrays makes ConvertTo-Json wrap
 # inner arrays as `{"value":[...]}` whenever the array transits through a
 # function return. We bypass that entirely by assembling the JSON payload
-# as a string template — each $X holds the *raw* JSON string returned by
+# as a string template - each $X holds the *raw* JSON string returned by
 # osqueryi, so there's no parse/re-serialize round-trip and arrays stay
 # arrays. JsonChunk sanitises empty/null inputs into "[]" / "{}".
 function JsonChunk {
@@ -611,7 +611,7 @@ function FirstObject {
     } catch { return "{}" }
 }
 
-# ── Delta-sync state (Phase 1 transport) ────────────────────────────────────
+# -- Delta-sync state (Phase 1 transport) ------------------------------------
 # Persisted between cycles so the agent ships only what changed: a hash per
 # inventory section, a datetime cursor per event source, and the last full
 # refresh time. Lives next to the sync script.
@@ -638,7 +638,7 @@ function Compress-Gzip([byte[]]$bytes) {
     $gz.Write($bytes, 0, $bytes.Length); $gz.Close()
     # Leading comma: stop PowerShell from UNROLLING the byte[] on return. Without
     # it the caller gets an object[] of bytes, and Invoke-RestMethod then sends the
-    # body as the decimal string "31 139 8 0 ..." instead of raw gzip bytes — the
+    # body as the decimal string "31 139 8 0 ..." instead of raw gzip bytes - the
     # server sees a bogus gzip header and rejects the payload.
     return ,$ms.ToArray()
 }
@@ -646,7 +646,7 @@ function Compress-Gzip([byte[]]$bytes) {
 $hostnameJson = JsonString $env:COMPUTERNAME
 $agentIdJson  = JsonString $AGENT_ID
 
-# ── Load delta state + decide on a periodic full refresh ────────────────────
+# -- Load delta state + decide on a periodic full refresh --------------------
 $state = Get-State
 # Unix time, culture-invariant (avoid Get-Date -UFormat %s + [double]::Parse,
 # which misreads the decimal under fr-FR and breaks the refresh math) and
@@ -676,7 +676,7 @@ Add-Section "users"             $users
 Add-Section "autoexec"          $autoexec
 Add-Section "interface_details" $ifaces
 Add-Section "logged_in_users"   $logins
-# os_version is a single object (FirstObject), not an array — same hash gate.
+# os_version is a single object (FirstObject), not an array - same hash gate.
 $osRaw = (FirstObject $osVer)
 $osH = Get-SectionHash $osRaw
 if ($fullRefresh -or $state.hashes.os_version -ne $osH) {
@@ -707,15 +707,15 @@ function Collect-Events($name, $channel, $eventFilter) {
 # emits every Security event generically, so the rule's channel+eventid match drives
 # detection). Added: 4624 (PtH/RDP), 4662 (DCSync), 4728 (priv-group add), 4768/4769
 # (Kerberos/Kerberoasting), 4776 (NTLM cred validation). 4688/4672 left OUT on
-# purpose (very high volume, no rule consumes them yet — audit policy enables them
+# purpose (very high volume, no rule consumes them yet - audit policy enables them
 # so they can be added later without re-rolling the host).
 $sec = Collect-Events "windows_security_events" "Security" "eventid IN (4624,4625,4662,4720,4726,4728,4732,4756,4768,4769,4776,1102)"
 $ps  = Collect-Events "powershell_events" "Microsoft-Windows-PowerShell/Operational" "eventid IN (4103,4104)"
 # Phase 3: System channel for the service-install detection (win-auth-008, Event 7045).
 $sys = Collect-Events "windows_system_events" "System" "eventid IN (7045)"
 
-# FRONT-C1 : bypass TLS SCOPÉ au seul serveur TC (self-signed). Le sync ne parle
-# qu'à TC (sync + manifest), mais on reste cohérent avec l'installeur — jamais de
+# FRONT-C1 : bypass TLS SCOPE au seul serveur TC (self-signed). Le sync ne parle
+# qu'a TC (sync + manifest), mais on reste coherent avec l'installeur - jamais de
 # bypass global au niveau du processus.
 Add-Type -ErrorAction SilentlyContinue -TypeDefinition @"
 using System;
@@ -762,7 +762,7 @@ try {
 
 # Assemble payload. hostname/agent_id/ts are ALWAYS present = heartbeat (a quiet
 # host stays distinguishable from a dead one). Volatile detection inputs
-# (sockets, listening ports, dns) are ALWAYS shipped — they must be re-checked
+# (sockets, listening ports, dns) are ALWAYS shipped - they must be re-checked
 # against threat intel every cycle, so they are never delta'd. Inventory
 # ($invStr) is delta. Events come from the cursor. Truncation flags ride along.
 $truncFlags = @()
@@ -777,7 +777,7 @@ $payload = @"
 {"hostname":$hostnameJson,"agent_id":$agentIdJson,"platform":"windows","ts":$now,"process_open_sockets":$(JsonChunk $sockets),"listening_ports":$(JsonChunk $ports),"dns_cache":$(JsonChunk $dns),"windows_security_events":$($sec.raw),"powershell_events":$($ps.raw),"windows_system_events":$($sys.raw)$invStr$truncStr$manifestExtras}
 "@
 
-# Send to ThreatClaw — gzip only if the server advertised it (negotiated via the
+# Send to ThreatClaw - gzip only if the server advertised it (negotiated via the
 # manifest accepts_gzip flag), with a clear fallback to plaintext if compression
 # is unavailable. State (cursors/hashes/last_full) is saved ONLY after a 200, so
 # a failed sync re-sends the exact same delta next cycle (no lost events).
@@ -809,7 +809,7 @@ $syncContent = $syncTemplate -replace '%%TC_URL%%', $Url -replace '%%TC_TOKEN%%'
 Set-Content -Path $SyncScript -Value $syncContent -Encoding UTF8
 Write-TC "Sync script created at $SyncScript"
 
-# ── 4. Create Scheduled Task ────────────────────────────────────────────────
+# -- 4. Create Scheduled Task ------------------------------------------------
 
 $TaskName = "ThreatClaw Agent Sync"
 
@@ -844,7 +844,7 @@ Register-ScheduledTask -TaskName $TaskName `
 
 Write-TC "Scheduled task created: '$TaskName' (every ${SyncInterval}min as SYSTEM)"
 
-# ── 5. First sync ───────────────────────────────────────────────────────────
+# -- 5. First sync -----------------------------------------------------------
 
 Write-Host ""
 Write-TC "Running first sync..."
@@ -854,7 +854,7 @@ try {
     Write-TC "First sync failed (ThreatClaw may not be reachable yet)" -Color Yellow
 }
 
-# ── Done ─────────────────────────────────────────────────────────────────────
+# -- Done ---------------------------------------------------------------------
 
 Write-Host ""
 Write-Host "  +==========================================+" -ForegroundColor Green

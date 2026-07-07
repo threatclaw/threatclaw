@@ -67,12 +67,12 @@ pub enum Channel {
 ///   FROM p GROUP BY sbid LIMIT 1;
 /// Replace the value below, and update EXPECTED_INSTALLER_SHA in check-consistency.sh.
 ///
-/// Captured 2026-06-29 on cyb06 (stable across 3 installs — same reassembled hash
-/// from blocks split 3 and 4 ways), for install-agent.ps1 at file sha aca02a7…
+/// Captured 2026-07-07 on cyb06 (stable across 3 installs — same reassembled hash
+/// from blocks split 3 and 4 ways), for the ASCII-clean install-agent.ps1 at file sha f822be2 (pure ASCII: reassembled scriptblock hash equals the file sha)…
 /// (the Phase 3 Windows-coverage build: advanced audit policy + expanded event-id
 /// collection + System channel).
 const INSTALLER_OSQUERY_PS_SHA256: &[&str] =
-    &["5d1cc64d044daf85bc2f7e9fdce7059f20b1664b99df33366bbbaf48aa6d5927"];
+    &["f822be2210701810e6e5a89b5138104e3c80e4fe8a3937119501bc460acc4e7d"];
 
 fn installer_hashes(channel: Channel) -> &'static [&'static str] {
     match channel {
