@@ -21,6 +21,8 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::agent::mitre_mapping::canonical_tactic;
+
 use crate::db::Database;
 use crate::db::threatclaw_store::{NewRiskEvent, NewTimelineEvent, TimelineEvent};
 
@@ -175,7 +177,9 @@ pub fn label_mitre(obs: &RawObservation) -> (Option<String>, Option<String>) {
         }
         ObsKind::NetworkConnect => ("command-and-control", "T1071"),
         ObsKind::DnsQuery => ("command-and-control", "T1071.004"),
-        ObsKind::Injection => ("defense-evasion", "T1055"),
+        // ATT&CK v19: T1055 Process Injection sits under `stealth` (the tactic that replaced
+        // defense-evasion for "hide the activity").
+        ObsKind::Injection => ("stealth", "T1055"),
         ObsKind::CredentialAccess => ("credential-access", "T1003.001"),
         ObsKind::Logon => ("lateral-movement", "T1021"),
         ObsKind::AccountChange => {
@@ -192,16 +196,25 @@ pub fn label_mitre(obs: &RawObservation) -> (Option<String>, Option<String>) {
                 ("privilege-escalation", "T1548")
             }
         }
+        // ATT&CK v19 retired defense-evasion and split it in two — and the split lands exactly on
+        // the distinction this branch already made:
+        //   * wiping the event log  -> T1685.005 Clear Windows Event Logs, tactic DEFENSE-IMPAIRMENT
+        //     (T1070.001 was REVOKED by MITRE in favour of T1685.005 — we were tagging incidents
+        //     with a technique ID that no longer exists).
+        //   * removing traces generally -> T1070 Indicator Removal, tactic STEALTH.
         ObsKind::DefenseEvasion => {
             if d.contains("1102") || d.contains("104") || d.contains("clear") {
-                ("defense-evasion", "T1070.001")
+                ("defense-impairment", "T1685.005")
             } else {
-                ("defense-evasion", "T1070")
+                ("stealth", "T1070")
             }
         }
         ObsKind::FileEvent => ("collection", "T1005"),
     };
-    (Some(tactic.to_string()), Some(technique.to_string()))
+    (
+        Some(canonical_tactic(tactic)),
+        Some(technique.to_string()),
+    )
 }
 
 /// Pure: convert one observation into a persistable timeline event.
@@ -328,7 +341,8 @@ pub fn detect_standalone_findings(obs: &[RawObservation]) -> Vec<StandaloneFindi
                 Some((
                     "Journal d'événements effacé (anti-forensique)",
                     "high",
-                    "T1070.001",
+                    // T1070.001 was REVOKED by MITRE (ATT&CK v19) in favour of T1685.005.
+                    "T1685.005",
                 ))
             }
             _ => None,
@@ -1157,6 +1171,70 @@ mod tests {
             let (_, t) = label_mitre(&obs(ObsKind::Persistence, detail, 1));
             assert_eq!(t.as_deref(), Some(tech), "detail={detail}");
         }
+    }
+
+    /// ATT&CK v19 retired `defense-evasion`, splitting it into `stealth` (hide) and
+    /// `defense-impairment` (break the defenses). We used to emit the retired tactic — a name that
+    /// matches nothing in the ATT&CK data the agent syncs.
+    #[test]
+    fn never_emits_the_retired_defense_evasion_tactic() {
+        let cases = [
+            (ObsKind::Injection, "CreateRemoteThread into lsass"),
+            (ObsKind::DefenseEvasion, "event log 1102 cleared"),
+            (ObsKind::DefenseEvasion, "shred /var/log/auth.log"),
+        ];
+        for (kind, detail) in cases {
+            let (tac, _) = label_mitre(&obs(kind, detail, 1));
+            let tac = tac.expect("a tactic is always emitted");
+            assert_ne!(tac, "defense-evasion", "retired in ATT&CK v19: {detail}");
+            assert_ne!(tac, "defense_evasion", "retired in ATT&CK v19: {detail}");
+        }
+    }
+
+    /// The v19 split lands exactly on the distinction this branch already made: wiping the event
+    /// log BREAKS the defenses (defense-impairment); removing traces generally HIDES the activity
+    /// (stealth).
+    #[test]
+    fn maps_the_v19_stealth_vs_defense_impairment_split() {
+        let (tac, tech) = label_mitre(&obs(ObsKind::DefenseEvasion, "event log 1102 cleared", 1));
+        assert_eq!(tac.as_deref(), Some("defense-impairment"));
+        assert_eq!(tech.as_deref(), Some("T1685.005"));
+
+        let (tac, tech) = label_mitre(&obs(ObsKind::DefenseEvasion, "shred /var/log/auth.log", 1));
+        assert_eq!(tac.as_deref(), Some("stealth"));
+        assert_eq!(tech.as_deref(), Some("T1070"));
+
+        let (tac, tech) = label_mitre(&obs(ObsKind::Injection, "CreateRemoteThread lsass", 1));
+        assert_eq!(tac.as_deref(), Some("stealth"));
+        assert_eq!(tech.as_deref(), Some("T1055"));
+    }
+
+    /// T1070.001 was REVOKED by MITRE in favour of T1685.005 — we were stamping incidents with a
+    /// technique ID that no longer resolves. It must appear nowhere DFIR can emit it.
+    #[test]
+    fn never_emits_the_revoked_t1070_001() {
+        let o = obs(ObsKind::DefenseEvasion, "event log 1102 cleared", 1);
+        assert_ne!(label_mitre(&o).1.as_deref(), Some("T1070.001"));
+        // …and not via the standalone-finding path either: it carried its own copy of the literal,
+        // so fixing only label_mitre would have left the revoked ID on the incident.
+        let findings = detect_standalone_findings(std::slice::from_ref(&o));
+        let f = findings.first().expect("log clearing is a standalone finding");
+        assert_ne!(f.mitre_technique, "T1070.001", "revoked technique");
+        assert_eq!(f.mitre_technique, "T1685.005");
+    }
+
+    /// The tactic that reaches `mitre_tactic` must be canonical, because `risk_aggregator` scores
+    /// tactic DIVERSITY off distinct strings: sigma_engine spelled it `credential_access` and DFIR
+    /// spelled it `credential-access`, so one tactic scored as two on any asset both engines saw.
+    #[test]
+    fn dfir_and_sigma_agree_on_the_tactic_spelling() {
+        let (dfir_tac, _) = label_mitre(&obs(ObsKind::CredentialAccess, "lsass dump", 1));
+        let (sigma_tac, _) = crate::agent::sigma_engine::mitre_from_tags(&[
+            "attack.credential_access".to_string(),
+            "attack.t1003.001".to_string(),
+        ]);
+        assert_eq!(dfir_tac, sigma_tac, "the two producers must agree");
+        assert_eq!(dfir_tac.as_deref(), Some("credential-access"));
     }
 
     #[test]

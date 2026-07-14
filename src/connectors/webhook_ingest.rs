@@ -691,7 +691,11 @@ async fn parse_zeek(store: &dyn Database, batch: &mut LogBatch, json: &serde_jso
                         ("bzar-credential-access", "critical", "T1003.006")
                     }
                     n if n.starts_with("ATTACK::Defense_Evasion") => {
-                        ("bzar-defense-evasion", "high", "T1070.001")
+                        // T1070.001 was REVOKED by MITRE (v19). BZAR's Defense_Evasion bucket is
+                        // generic anyway, so its parent T1070 (Indicator Removal) is the honest
+                        // mapping — the specific "clear Windows event logs" claim was never
+                        // warranted by the signature.
+                        ("bzar-defense-evasion", "high", "T1070")
                     }
                     n if n.starts_with("ATTACK::Discovery") => {
                         ("bzar-discovery", "medium", "T1018")

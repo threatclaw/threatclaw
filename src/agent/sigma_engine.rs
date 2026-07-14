@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 use tokio::sync::RwLock;
 
+use crate::agent::mitre_mapping::canonical_tactic;
+
 // ── Global compiled rules ──
 
 pub static SIGMA_RULES: LazyLock<Arc<RwLock<Vec<CompiledRule>>>> =
@@ -263,6 +265,10 @@ pub fn risk_score_from_level(level: &str) -> i32 {
 /// RBA — extract the first MITRE tactic + technique from a rule's Sigma tags
 /// (`attack.t1003.001`, `attack.credential_access`, …). Populates the "risk
 /// annotations" used by the tactic-diversity Risk Incident Rule.
+///
+/// The tactic goes through `canonical_tactic`: Sigma tags spell it `credential_access` while
+/// `dfir_triage` spells it `credential-access`, and the diversity rule counts DISTINCT tactic
+/// strings — so without this the same tactic scored twice on any asset seen by both engines.
 pub fn mitre_from_tags(tags: &[String]) -> (Option<String>, Option<String>) {
     let mut tactic = None;
     let mut technique = None;
@@ -278,7 +284,7 @@ pub fn mitre_from_tags(tags: &[String]) -> (Option<String>, Option<String>) {
                 technique = Some(rest.to_ascii_uppercase()); // t1003.001 -> T1003.001
             }
         } else if tactic.is_none() {
-            tactic = Some(rest.to_string()); // credential_access
+            tactic = Some(canonical_tactic(rest)); // credential_access -> credential-access
         }
     }
     (tactic, technique)

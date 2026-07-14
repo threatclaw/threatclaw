@@ -28,6 +28,32 @@
 
 use crate::agent::incident_dossier::DossierAlert;
 
+/// Canonical ATT&CK tactic name — the ONE spelling that reaches `mitre_tactic`.
+///
+/// Two producers write that column and they disagreed: `sigma_engine::mitre_from_tags` passed the
+/// Sigma tag through verbatim (`credential_access`, underscore) while `dfir_triage::label_mitre`
+/// emitted its own literals (`credential-access`, hyphen). `risk_aggregator` collects
+/// `mitre_tactic` into a `BTreeSet` to score **tactic diversity**, so the same tactic under two
+/// spellings counted as TWO — inflating the risk of any asset both engines saw, and able to fire a
+/// notable that should not have fired. Everything that writes a tactic goes through here.
+///
+/// It also folds ATT&CK's own renames. v19 retired `defense-evasion`, splitting it into `stealth`
+/// (hide the activity) and `defense-impairment` (break the defenses). That split cannot be
+/// recovered from a tactic name alone — only the *technique* says which side it lands on. So:
+///   - a producer that knows the technique resolves it BEFORE calling (see `label_mitre`: T1055 and
+///     T1070 → stealth, T1685.005 → defense-impairment);
+///   - a producer holding only a legacy tactic label (an upstream Sigma tag, which we do not
+///     rewrite) lands on `stealth`, the larger successor. Deliberately approximate: one canonical
+///     bucket beats a retired name that double-counts against the real one.
+pub fn canonical_tactic(tactic: &str) -> String {
+    let t = tactic.trim().to_ascii_lowercase().replace('_', "-");
+    match t.as_str() {
+        // Retired in ATT&CK v19 — see the note above on why this is an approximation.
+        "defense-evasion" => "stealth".to_string(),
+        _ => t,
+    }
+}
+
 pub struct Baseline {
     pub mitre: Vec<String>,
     pub actions: Vec<serde_json::Value>,
@@ -97,7 +123,9 @@ pub fn baseline_for_rule(rule_id: &str, dominant_alert: Option<&DossierAlert>) -
             )],
         },
         "osquery-win-audit-log-cleared" => Baseline {
-            mitre: vec!["T1070.001 Indicator Removal: Clear Windows Event Logs".into()],
+            // T1070.001 was REVOKED by MITRE (ATT&CK v19) in favour of T1685.005 — the RSSI was
+            // being handed a technique ID that no longer resolves on attack.mitre.org.
+            mitre: vec!["T1685.005 Clear Windows Event Logs".into()],
             actions: vec![
                 forensic_snapshot("Snapshot forensique avant toute compromission supplémentaire"),
                 ticket(
@@ -322,5 +350,46 @@ mod tests {
         assert_eq!(actions[0]["params"]["IP"], "1.2.3.4");
         // Baseline usr-001 appended:
         assert_eq!(actions[1]["cmd_id"], "usr-001");
+    }
+
+    #[test]
+    fn canonical_tactic_unifies_the_two_producers_spellings() {
+        // The bug this exists to kill: sigma_engine said `credential_access`, dfir_triage said
+        // `credential-access`, and risk_aggregator's tactic-diversity set counted them as two.
+        assert_eq!(canonical_tactic("credential_access"), "credential-access");
+        assert_eq!(canonical_tactic("credential-access"), "credential-access");
+        assert_eq!(canonical_tactic("Credential_Access"), "credential-access");
+        assert_eq!(
+            canonical_tactic("credential_access"),
+            canonical_tactic("credential-access"),
+        );
+    }
+
+    #[test]
+    fn canonical_tactic_folds_the_v19_defense_evasion_retirement() {
+        // ATT&CK v19 split defense-evasion into stealth + defense-impairment. A legacy label with
+        // no technique to disambiguate folds into stealth, rather than staying a retired name that
+        // double-counts against the real one.
+        assert_eq!(canonical_tactic("defense_evasion"), "stealth");
+        assert_eq!(canonical_tactic("defense-evasion"), "stealth");
+        assert_eq!(canonical_tactic("stealth"), "stealth");
+        // The other half of the split is a first-class tactic, never rewritten.
+        assert_eq!(canonical_tactic("defense-impairment"), "defense-impairment");
+    }
+
+    #[test]
+    fn canonical_tactic_leaves_current_tactics_alone() {
+        for t in [
+            "execution",
+            "persistence",
+            "privilege-escalation",
+            "discovery",
+            "lateral-movement",
+            "command-and-control",
+            "impact",
+            "collection",
+        ] {
+            assert_eq!(canonical_tactic(t), t, "{t} must survive untouched");
+        }
     }
 }
