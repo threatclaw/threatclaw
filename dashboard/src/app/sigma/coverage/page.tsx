@@ -24,7 +24,12 @@ type CoverageResponse = {
   layer: unknown;
 };
 
-// 14 ATT&CK Enterprise tactics in canonical order. Used as columns.
+// The 15 ATT&CK Enterprise tactics (v19) in canonical order. Used as columns.
+//
+// v19 retired Defense Evasion and split it in two: TA0005 was REUSED for `Stealth` (hide the
+// activity) and TA0112 `Defense Impairment` (break the defenses) was added. So TA0005 keeps its id
+// but changes meaning — labelling it "Defense Evasion" was showing the RSSI a tactic that no
+// longer exists, and the whole Defense-Impairment column was simply missing from the matrix.
 const TACTICS: { id: string; nameFr: string; nameEn: string }[] = [
   { id: "TA0043", nameFr: "Reconnaissance", nameEn: "Reconnaissance" },
   { id: "TA0042", nameFr: "Dev. ressources", nameEn: "Resource Dev." },
@@ -32,7 +37,8 @@ const TACTICS: { id: string; nameFr: string; nameEn: string }[] = [
   { id: "TA0002", nameFr: "Exécution", nameEn: "Execution" },
   { id: "TA0003", nameFr: "Persistance", nameEn: "Persistence" },
   { id: "TA0004", nameFr: "Élévation priv.", nameEn: "Priv. Escalation" },
-  { id: "TA0005", nameFr: "Évasion", nameEn: "Defense Evasion" },
+  { id: "TA0005", nameFr: "Furtivité", nameEn: "Stealth" },
+  { id: "TA0112", nameFr: "Altération défenses", nameEn: "Defense Impairment" },
   { id: "TA0006", nameFr: "Accès crédentiels", nameEn: "Credential Access" },
   { id: "TA0007", nameFr: "Découverte", nameEn: "Discovery" },
   { id: "TA0008", nameFr: "Mouv. latéral", nameEn: "Lateral Movement" },
@@ -57,30 +63,44 @@ const TECHNIQUE_TACTIC: Record<string, string> = {
   "T1136.001": "TA0003", "T1136.003": "TA0003",
   // Privilege Escalation
   "T1548": "TA0004", "T1548.003": "TA0004",
-  // Defense Evasion
-  "T1027": "TA0005", "T1140": "TA0005", "T1197": "TA0005", "T1562": "TA0005",
-  "T1562.001": "TA0005", "T1562.004": "TA0005", "T1564": "TA0005", "T1564.003": "TA0005",
-  "T1620": "TA0005", "T1070": "TA0005", "T1070.001": "TA0005", "T1070.002": "TA0005",
+  // Stealth (TA0005 — the id Defense Evasion used to carry; v19 reused it for Stealth)
+  "T1027": "TA0005", "T1140": "TA0005", "T1197": "TA0005", "T1564": "TA0005",
+  "T1564.003": "TA0005", "T1620": "TA0005", "T1070": "TA0005",
+  // Defense Impairment (TA0112 — the other half of the v19 split)
+  "T1685": "TA0112", "T1685.005": "TA0112", "T1685.006": "TA0112", "T1686": "TA0112",
+  // …and the technique ids MITRE revoked in that split. Kept on purpose: the Sigma rules in the
+  // field still carry the old tags (attack.t1562.001, attack.t1070.001), so dropping them here
+  // would silently dump those rules into the "Other" column instead of counting their coverage.
+  // Each points at the tactic its SUCCESSOR now belongs to.
+  "T1562": "TA0112",       // -> T1685 Disable or Modify Tools
+  "T1562.001": "TA0112",   // -> T1685
+  "T1562.004": "TA0112",   // -> T1686 Disable or Modify System Firewall
+  "T1070.001": "TA0112",   // -> T1685.005 Clear Windows Event Logs
+  "T1070.002": "TA0112",   // -> T1685.006 Clear Linux or Mac System Logs
   // Credential Access
   "T1110": "TA0006", "T1110.001": "TA0006", "T1003": "TA0006", "T1003.001": "TA0006",
   "T1003.006": "TA0006", "T1558": "TA0006", "T1558.001": "TA0006", "T1558.003": "TA0006",
   "T1557": "TA0006", "T1557.002": "TA0006", "T1552": "TA0006", "T1056": "TA0006",
   // Discovery
-  "T1046": "TA0007", "T1595": "TA0007",
+  "T1046": "TA0007",
+  // Reconnaissance — T1595 Active Scanning is recon, not discovery (it was in the wrong column).
+  "T1595": "TA0043",
   // Lateral Movement
   "T1021": "TA0008", "T1021.001": "TA0008", "T1021.002": "TA0008", "T1021.006": "TA0008",
   "T1550": "TA0008", "T1550.002": "TA0008",
   // Collection
-  "T1530": "TA0009", "T1105": "TA0009",
-  // Command & Control
-  "T1071": "TA0011", "T1071.004": "TA0011", "T1571": "TA0011",
+  "T1530": "TA0009",
+  // Command & Control — T1105 Ingress Tool Transfer is C2, not collection (wrong column).
+  "T1071": "TA0011", "T1071.004": "TA0011", "T1571": "TA0011", "T1105": "TA0011",
   // Exfiltration
   "T1567": "TA0010", "T1567.002": "TA0010",
   // Impact
   "T1485": "TA0040", "T1496": "TA0040", "T1498": "TA0040", "T1498.002": "TA0040",
   "T1499": "TA0040", "T1499.004": "TA0040",
-  // Resource Development
-  "T1078.003": "TA0042",
+  // T1078.003 Local Accounts — was filed under Resource Development, a tactic it has never had
+  // (ATT&CK gives it stealth / persistence / priv-esc / initial-access). Aligned with its parent
+  // T1078 above, which the matrix already counts as Initial Access.
+  "T1078.003": "TA0001",
 };
 
 function tacticFor(techniqueId: string): string {
