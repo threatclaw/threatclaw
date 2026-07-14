@@ -1064,8 +1064,9 @@ pub async fn check_shared_folders(
 ///
 /// The agent caps the number of events it ships per cycle; when it hits that cap
 /// it sets a `<source>_truncated` marker so a flood is surfaced as a finding
-/// (often an evasion / log-flooding attempt, MITRE T1562) instead of a silent
-/// loss. Pure function so it is unit-testable without a live store.
+/// (often a log-flooding attempt to drown the telemetry — MITRE T1685 Disable or
+/// Modify Tools, which superseded the revoked T1562) instead of a silent loss.
+/// Pure function so it is unit-testable without a live store.
 pub fn truncated_sources(json: &serde_json::Value) -> Vec<String> {
     let mut out = Vec::new();
     if let Some(obj) = json.as_object() {
@@ -1151,10 +1152,11 @@ pub async fn process_osquery_webhook(
     // (last_seen est mis à jour par verify_agent_binding, en préservant le token.)
 
     // If the agent flagged any source as truncated (it hit its per-cycle event
-    // cap), raise a finding — a flood is a signal (possible evasion / T1562),
-    // never a silent loss.
+    // cap), raise a finding — a flood is a signal (possible defense impairment /
+    // T1685, drowning the telemetry), never a silent loss.
+    // T1562 was REVOKED by MITRE (ATT&CK v19) in favour of T1685 Disable or Modify Tools.
     for src in truncated_sources(body) {
-        let title = format!("Ingestion tronquée: {src} (flood possible / évasion T1562)");
+        let title = format!("Ingestion tronquée: {src} (flood possible / altération des défenses T1685)");
         let _ = store
             .insert_sigma_alert("osquery-ingest-truncated", "medium", &title, hostname, None, None)
             .await;
