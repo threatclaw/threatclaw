@@ -757,6 +757,8 @@ pub struct AuditEvent {
     pub target_resources: Vec<serde_json::Value>,
     #[serde(default, rename = "additionalDetails")]
     pub additional_details: Vec<serde_json::Value>,
+    #[serde(default, rename = "loggedByService")]
+    pub logged_by_service: Option<String>,
 }
 
 impl AuditEvent {
@@ -767,6 +769,23 @@ impl AuditEvent {
             .get("user")
             .and_then(|u| u.get("userPrincipalName"))
             .and_then(|v| v.as_str())
+    }
+
+    /// Normalise a Graph directory audit into the Azure-Monitor **AuditLogs** field
+    /// taxonomy the Sigma `azure/auditlogs` rules are written against (OperationName,
+    /// Category, InitiatedBy, TargetResources, …). Inserted under tag `m365.entra.audit`.
+    pub fn to_auditlogs_data(&self) -> serde_json::Value {
+        serde_json::json!({
+            "OperationName": self.activity_display_name,
+            "ActivityDisplayName": self.activity_display_name,
+            "Category": self.category,
+            "Status": self.result,
+            "ResultType": self.result,
+            "LoggedByService": self.logged_by_service,
+            "InitiatedBy": self.initiated_by,
+            "TargetResources": self.target_resources,
+            "AdditionalDetails": self.additional_details,
+        })
     }
 
     /// UPN of the first user-typed target resource. Returns `None` when
@@ -802,6 +821,25 @@ pub struct SignInEvent {
     pub status: serde_json::Value,
     #[serde(default, rename = "location")]
     pub location: serde_json::Value,
+    // Extra fields the Sigma azure/signinlogs rules match on — captured so
+    // `to_signinlogs_data` can present them under the Azure-Monitor SigninLogs
+    // field names the rules expect (they target the SigninLogs table, not raw Graph).
+    #[serde(default, rename = "clientAppUsed")]
+    pub client_app_used: Option<String>,
+    #[serde(default, rename = "conditionalAccessStatus")]
+    pub conditional_access_status: Option<String>,
+    #[serde(default, rename = "riskState")]
+    pub risk_state: Option<String>,
+    #[serde(default, rename = "riskLevelDuringSignIn")]
+    pub risk_level_during_signin: Option<String>,
+    #[serde(default, rename = "authenticationRequirement")]
+    pub authentication_requirement: Option<String>,
+    #[serde(default, rename = "resourceDisplayName")]
+    pub resource_display_name: Option<String>,
+    #[serde(default, rename = "userAgent")]
+    pub user_agent: Option<String>,
+    #[serde(default, rename = "correlationId")]
+    pub correlation_id: Option<String>,
 }
 
 impl SignInEvent {
@@ -812,6 +850,35 @@ impl SignInEvent {
         self.location
             .get("countryOrRegion")
             .and_then(|v| v.as_str())
+    }
+
+    /// Normalise a Graph sign-in into the Azure-Monitor **SigninLogs** field taxonomy
+    /// the Sigma `azure/signinlogs` rules are written against (ResultType, ClientApp,
+    /// ConditionalAccessStatus, …). This is the log we insert under tag `m365.entra.signin`
+    /// so the generic Sigma engine can evaluate the ~130 azure rules against real tenant data.
+    /// A missing field is emitted as JSON null (a rule that needs it simply won't match).
+    pub fn to_signinlogs_data(&self) -> serde_json::Value {
+        let result_type = self.error_code().map(|c| c.to_string());
+        serde_json::json!({
+            "ResultType": result_type,
+            "ResultDescription": self.status.get("failureReason").and_then(|v| v.as_str()),
+            "Status": self.status,
+            "UserPrincipalName": self.user_principal_name,
+            "Username": self.user_principal_name,
+            "IPAddress": self.ip_address,
+            "AppDisplayName": self.app_display_name,
+            "ClientApp": self.client_app_used,
+            "ClientAppUsed": self.client_app_used,
+            "ConditionalAccessStatus": self.conditional_access_status,
+            "RiskState": self.risk_state,
+            "RiskLevelDuringSignIn": self.risk_level_during_signin,
+            "AuthenticationRequirement": self.authentication_requirement,
+            "ResourceDisplayName": self.resource_display_name,
+            "UserAgent": self.user_agent,
+            "Location": self.country(),
+            "LocationDetails": self.location,
+            "CorrelationId": self.correlation_id,
+        })
     }
 }
 
@@ -1539,6 +1606,21 @@ pub async fn sync_microsoft_graph(
                         Some(ev.activity_date_time.clone());
                 }
 
+                // Ingest the raw event into `logs` (SigninLogs/AuditLogs taxonomy) so the
+                // generic Sigma engine evaluates the azure/auditlogs rules against it. The
+                // hardcoded detect_from_audit below still runs (no regression) — it will be
+                // retired once the Sigma coverage supersedes it.
+                crate::connectors::log_db_write(
+                    "ms-graph:insert_log(audit)",
+                    store.insert_log(
+                        "m365.entra.audit",
+                        &hostname,
+                        &ev.to_auditlogs_data(),
+                        &ev.activity_date_time,
+                    ),
+                )
+                .await;
+
                 if let Some(det) = detect_from_audit(ev) {
                     match store
                         .insert_sigma_alert(
@@ -1598,6 +1680,20 @@ pub async fn sync_microsoft_graph(
                     )
                     .await;
                 }
+
+                // Ingest the raw sign-in into `logs` (SigninLogs taxonomy) so the generic
+                // Sigma engine evaluates the azure/signinlogs rules against real tenant data.
+                // The hardcoded detect_from_signin below still runs (no regression).
+                crate::connectors::log_db_write(
+                    "ms-graph:insert_log(signin)",
+                    store.insert_log(
+                        "m365.entra.signin",
+                        &hostname,
+                        &ev.to_signinlogs_data(),
+                        &ev.created_date_time,
+                    ),
+                )
+                .await;
 
                 if let Some(det) = detect_from_signin(ev) {
                     match store
@@ -2090,6 +2186,120 @@ mod tests {
 
     fn signin_from_json(j: serde_json::Value) -> SignInEvent {
         serde_json::from_value(j).expect("signin fixture must deserialize")
+    }
+
+    #[test]
+    fn signin_normalises_to_signinlogs_taxonomy() {
+        // Shape captured from a real Graph /auditLogs/signIns response.
+        let ev = signin_from_json(serde_json::json!({
+            "id": "s1",
+            "createdDateTime": "2026-08-18T09:00:00Z",
+            "userPrincipalName": "alice@contoso.com",
+            "ipAddress": "203.0.113.9",
+            "appDisplayName": "Microsoft Azure PowerShell",
+            "clientAppUsed": "Mobile Apps and Desktop clients",
+            "conditionalAccessStatus": "failure",
+            "riskState": "atRisk",
+            "riskLevelDuringSignIn": "high",
+            "authenticationRequirement": "singleFactorAuthentication",
+            "status": { "errorCode": 50126, "failureReason": "Invalid username or password." },
+            "location": { "city": "Paris", "countryOrRegion": "FR" }
+        }));
+        let d = ev.to_signinlogs_data();
+        // Fields must land under the exact SigninLogs names the Sigma azure rules match on.
+        assert_eq!(d["ResultType"], "50126");
+        assert_eq!(d["ClientApp"], "Mobile Apps and Desktop clients");
+        assert_eq!(d["ConditionalAccessStatus"], "failure");
+        assert_eq!(d["RiskLevelDuringSignIn"], "high");
+        assert_eq!(d["AuthenticationRequirement"], "singleFactorAuthentication");
+        assert_eq!(d["UserPrincipalName"], "alice@contoso.com");
+        assert_eq!(d["IPAddress"], "203.0.113.9");
+        assert_eq!(d["Location"], "FR");
+    }
+
+    /// END-TO-END contract: a Sigma `azure/signinlogs` rule, compiled through the PRODUCTION
+    /// engine path, must fire against a log produced by `to_signinlogs_data` — proving the
+    /// field-name contract (Graph → SigninLogs taxonomy) and the logsource routing
+    /// (tag `m365.entra.signin` ↔ rule product=entra/category=m365) actually line up. This is
+    /// the guard against the silent non-matching trap: if the two sides ever drift, this fails.
+    #[test]
+    fn m365_signin_rule_fires_end_to_end_through_the_engine() {
+        use crate::agent::sigma_engine::{compile_detection_for_tests, match_rule_for_tests, CompiledRule};
+
+        // A risky-but-successful sign-in detection in the SigninLogs taxonomy.
+        let rule_json = serde_json::json!({
+            "id": "tc-m365-risky-success-signin",
+            "title": "Successful sign-in flagged high risk",
+            "level": "high",
+            "logsource": { "product": "entra", "category": "m365", "service": "signin" },
+            "detection": {
+                "selection": { "ResultType": "0", "RiskLevelDuringSignIn": "high" },
+                "condition": "selection"
+            }
+        });
+        let (matchers, condition) =
+            compile_detection_for_tests(&rule_json["detection"]).expect("rule compiles");
+        let rule = CompiledRule {
+            id: "tc-m365-risky-success-signin".into(),
+            title: "Successful sign-in flagged high risk".into(),
+            level: "high".into(),
+            logsource_category: Some("m365".into()),
+            logsource_product: Some("entra".into()),
+            logsource_service: Some("signin".into()),
+            tags: vec![],
+            matchers,
+            condition,
+            disposition: "detect".into(),
+            tier: "queue".into(),
+            risk_score: None,
+        };
+
+        // Risky success → must fire. The engine reads event fields under `data`.
+        let risky = signin_from_json(serde_json::json!({
+            "id": "s2", "createdDateTime": "2026-08-18T09:00:00Z",
+            "userPrincipalName": "bob@contoso.com", "ipAddress": "198.51.100.7",
+            "appDisplayName": "Office 365", "riskLevelDuringSignIn": "high",
+            "status": { "errorCode": 0 }
+        }));
+        let log = serde_json::json!({ "data": risky.to_signinlogs_data() });
+        assert!(
+            match_rule_for_tests(&rule, &log, Some("m365.entra.signin")).is_some(),
+            "risky successful sign-in must fire the m365 rule end-to-end"
+        );
+
+        // Benign low-risk sign-in → must NOT fire.
+        let benign = signin_from_json(serde_json::json!({
+            "id": "s3", "createdDateTime": "2026-08-18T09:01:00Z",
+            "userPrincipalName": "carol@contoso.com", "ipAddress": "198.51.100.8",
+            "appDisplayName": "Office 365", "riskLevelDuringSignIn": "none",
+            "status": { "errorCode": 0 }
+        }));
+        let log2 = serde_json::json!({ "data": benign.to_signinlogs_data() });
+        assert!(
+            match_rule_for_tests(&rule, &log2, Some("m365.entra.signin")).is_none(),
+            "benign sign-in must not fire"
+        );
+    }
+
+    #[test]
+    fn audit_normalises_to_auditlogs_taxonomy() {
+        let ev = audit_from_json(serde_json::json!({
+            "id": "a1",
+            "activityDateTime": "2026-08-18T09:05:00Z",
+            "activityDisplayName": "Add member to role",
+            "category": "RoleManagement",
+            "result": "success",
+            "loggedByService": "Core Directory",
+            "initiatedBy": { "user": { "userPrincipalName": "admin@contoso.com" } },
+            "targetResources": [{ "type": "Role", "displayName": "Global Administrator" }]
+        }));
+        let d = ev.to_auditlogs_data();
+        assert_eq!(d["OperationName"], "Add member to role");
+        assert_eq!(d["Category"], "RoleManagement");
+        assert_eq!(d["Status"], "success");
+        assert_eq!(d["LoggedByService"], "Core Directory");
+        assert_eq!(d["InitiatedBy"]["user"]["userPrincipalName"], "admin@contoso.com");
+        assert_eq!(d["TargetResources"][0]["displayName"], "Global Administrator");
     }
 
     #[test]
