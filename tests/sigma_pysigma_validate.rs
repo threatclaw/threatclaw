@@ -269,7 +269,7 @@ fn health_check_field_resolution() {
     );
     if !dead.is_empty() {
         println!("\n  first 15 silently-dead rules (rule_id → unresolved fields):");
-        for (id, fields) in dead.iter().take(15) {
+        for (id, fields) in dead.iter().take(20) {
             println!("    {id}  {fields:?}");
         }
     }

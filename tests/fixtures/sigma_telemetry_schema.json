@@ -155,5 +155,26 @@
    "browser": "Edge",
    "deviceId": "did"
   }
+ },
+ "webserver": {
+  "c-ip": "203.0.113.9",
+  "c-uri": "/admin",
+  "c-useragent": "Mozilla/5.0",
+  "cs-bytes": "512",
+  "cs-content-type": "text/html",
+  "cs-host": "app.example.com",
+  "cs-method": "POST",
+  "cs-referer": "https://x",
+  "cs-uri-query": "?id=1",
+  "cs-uri-stem": "/login.php",
+  "cs-user-agent": "sqlmap/1.0",
+  "hostname": "web01",
+  "sc-status": "200"
+ },
+ "osquery.process": {
+  "cmdline": "/bin/bash -c id",
+  "parent": "1234",
+  "parent_path": "/usr/sbin/sshd",
+  "path": "/bin/bash"
  }
 }
