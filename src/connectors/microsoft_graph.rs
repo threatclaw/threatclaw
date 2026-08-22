@@ -840,6 +840,14 @@ pub struct SignInEvent {
     pub user_agent: Option<String>,
     #[serde(default, rename = "correlationId")]
     pub correlation_id: Option<String>,
+    #[serde(default, rename = "resourceTenantId")]
+    pub resource_tenant_id: Option<String>,
+    #[serde(default, rename = "homeTenantId")]
+    pub home_tenant_id: Option<String>,
+    #[serde(default, rename = "appId")]
+    pub app_id: Option<String>,
+    #[serde(default, rename = "networkLocationDetails")]
+    pub network_location_details: serde_json::Value,
 }
 
 impl SignInEvent {
@@ -875,9 +883,15 @@ impl SignInEvent {
             "AuthenticationRequirement": self.authentication_requirement,
             "ResourceDisplayName": self.resource_display_name,
             "UserAgent": self.user_agent,
+            // SigmaHQ azure rules spell this lowercase — emit both so neither casing dies silently.
+            "userAgent": self.user_agent,
             "Location": self.country(),
             "LocationDetails": self.location,
+            "NetworkLocationDetails": self.network_location_details,
             "CorrelationId": self.correlation_id,
+            "ResourceTenantId": self.resource_tenant_id,
+            "HomeTenantId": self.home_tenant_id,
+            "AppId": self.app_id,
         })
     }
 }
@@ -2202,6 +2216,9 @@ mod tests {
             "riskState": "atRisk",
             "riskLevelDuringSignIn": "high",
             "authenticationRequirement": "singleFactorAuthentication",
+            "userAgent": "Mozilla/5.0",
+            "appId": "00000002-0000-0ff1-ce00-000000000000",
+            "resourceTenantId": "tenant-123",
             "status": { "errorCode": 50126, "failureReason": "Invalid username or password." },
             "location": { "city": "Paris", "countryOrRegion": "FR" }
         }));
@@ -2215,6 +2232,11 @@ mod tests {
         assert_eq!(d["UserPrincipalName"], "alice@contoso.com");
         assert_eq!(d["IPAddress"], "203.0.113.9");
         assert_eq!(d["Location"], "FR");
+        // SigmaHQ rules use lowercase `userAgent`; both casings must be present.
+        assert_eq!(d["userAgent"], "Mozilla/5.0");
+        assert_eq!(d["UserAgent"], "Mozilla/5.0");
+        assert_eq!(d["AppId"], "00000002-0000-0ff1-ce00-000000000000");
+        assert_eq!(d["ResourceTenantId"], "tenant-123");
     }
 
     /// END-TO-END contract: a Sigma `azure/signinlogs` rule, compiled through the PRODUCTION
