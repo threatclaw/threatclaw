@@ -785,6 +785,10 @@ impl AuditEvent {
             "InitiatedBy": self.initiated_by,
             "TargetResources": self.target_resources,
             "AdditionalDetails": self.additional_details,
+            // Many SigmaHQ azure/auditlogs rules match the operation via the diagnostic-format
+            // `properties.message` field. Our Graph shape carries it as ActivityDisplayName; expose
+            // it under properties.message too (same value) so those rules resolve and fire correctly.
+            "properties": { "message": self.activity_display_name },
         })
     }
 
@@ -848,6 +852,8 @@ pub struct SignInEvent {
     pub app_id: Option<String>,
     #[serde(default, rename = "networkLocationDetails")]
     pub network_location_details: serde_json::Value,
+    #[serde(default, rename = "deviceDetail")]
+    pub device_detail: serde_json::Value,
 }
 
 impl SignInEvent {
@@ -892,6 +898,7 @@ impl SignInEvent {
             "ResourceTenantId": self.resource_tenant_id,
             "HomeTenantId": self.home_tenant_id,
             "AppId": self.app_id,
+            "DeviceDetail": self.device_detail,
         })
     }
 }
