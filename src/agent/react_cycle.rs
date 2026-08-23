@@ -519,8 +519,24 @@ mod tests {
     fn test_decide_execution_autonomous_low() {
         let mode = ModeConfig::for_mode(AgentMode::AutonomousLow);
 
+        // Low SANS flag HITL → auto-exécutable en AutonomousLow.
         let low_cmd = ValidatedCommand {
             id: "pkg-001".to_string(),
+            rendered_cmd: String::new(),
+            undo_cmd: None,
+            risk: RiskLevel::Low,
+            requires_hitl: false,
+            params: HashMap::new(),
+        };
+        assert_eq!(
+            decide_execution(&mode, &low_cmd),
+            ExecutionDecision::AutoExecute
+        );
+
+        // Low AVEC flag HITL → JAMAIS auto (ING-H8 : le flag prime sur le risk-level,
+        // sinon un `net-002 fail2ban banip` Low+HITL sauterait la liste protégée).
+        let low_hitl_cmd = ValidatedCommand {
+            id: "net-002".to_string(),
             rendered_cmd: String::new(),
             undo_cmd: None,
             risk: RiskLevel::Low,
@@ -528,8 +544,8 @@ mod tests {
             params: HashMap::new(),
         };
         assert_eq!(
-            decide_execution(&mode, &low_cmd),
-            ExecutionDecision::AutoExecute
+            decide_execution(&mode, &low_hitl_cmd),
+            ExecutionDecision::RequiresHitl
         );
 
         let high_cmd = ValidatedCommand {
