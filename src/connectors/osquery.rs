@@ -409,10 +409,12 @@ fn is_expected_download_parent(parent: &str) -> bool {
 
 pub async fn check_file_events(
     store: &dyn Database,
+    sink: &mut LogBatch,
     hostname: &str,
     events: &[serde_json::Value],
 ) -> usize {
     let mut alerts = 0usize;
+    let now = chrono::Utc::now().to_rfc3339();
 
     for event in events {
         let target_path = event["target_path"]
@@ -424,6 +426,31 @@ pub async fn check_file_events(
         if target_path.is_empty() {
             continue;
         }
+
+        // Feed the rule engine, not just the hardcoded FIM alert below. osquery
+        // collects these events on Linux and macOS, but nothing ever wrote them
+        // to `logs`, so the SigmaHQ file_event rules for those platforms (cron
+        // persistence, emond launch daemons, base64-in-filename tricks) had no
+        // data at all. `TargetFilename` is the name those rules use; osquery
+        // calls it `target_path`, so emit both rather than depend on a mapping
+        // holding at every layer.
+        sink.emit(
+            "osquery.file",
+            hostname,
+            &serde_json::json!({
+                "target_path": target_path,
+                "TargetFilename": target_path,
+                "action": action,
+                "category": event["category"].as_str().unwrap_or(""),
+                "md5": event["md5"].as_str().unwrap_or(""),
+                "sha256": event["sha256"].as_str().unwrap_or(""),
+                "uid": event["uid"].as_str().unwrap_or(""),
+                "gid": event["gid"].as_str().unwrap_or(""),
+                "mode": event["mode"].as_str().unwrap_or(""),
+                "time": event["time"].as_str().unwrap_or(""),
+            }),
+            &now,
+        );
 
         if is_critical_file(target_path) {
             let title = format!("FIM: {} {} on {}", target_path, action, hostname);
@@ -1204,7 +1231,7 @@ pub async fn process_osquery_webhook(
     }
 
     if let Some(file_events) = body["file_events"].as_array() {
-        result.alerts_created += check_file_events(store, hostname, file_events).await;
+        result.alerts_created += check_file_events(store, sink, hostname, file_events).await;
     }
 
     // ── Priorité 1 additions ──

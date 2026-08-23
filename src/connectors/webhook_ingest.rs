@@ -427,6 +427,25 @@ async fn parse_zeek(store: &dyn Database, batch: &mut LogBatch, json: &serde_jso
             .or_else(|| entry["host"].as_str())
             .unwrap_or("");
 
+        // Zeek's http.log is the closest thing most networks have to a forward-proxy
+        // log, and the SigmaHQ proxy rules are written against W3C field names that
+        // include two Zeek does not carry: the URI's file extension and its query
+        // string. Both are derivable from `uri` alone, so derive them here rather
+        // than leaving 4 rules without a field to read. Nothing is invented: if the
+        // URI has no extension or no query, neither field is emitted.
+        let enriched;
+        let entry = if tag == "zeek.http" {
+            match derive_uri_parts(entry) {
+                Some(e) => {
+                    enriched = e;
+                    &enriched
+                }
+                None => entry,
+            }
+        } else {
+            entry
+        };
+
         batch.emit(&tag, hostname, entry, &now);
         count += 1;
 
@@ -743,6 +762,38 @@ async fn parse_zeek(store: &dyn Database, batch: &mut LogBatch, json: &serde_jso
 }
 
 /// Detect Zeek log type from JSON entry fields.
+/// Add `uri_extension` and `uri_query` to a Zeek http entry, derived from its
+/// own `uri`. Returns `None` when there is nothing to add, so the common case
+/// does not clone the entry.
+fn derive_uri_parts(entry: &serde_json::Value) -> Option<serde_json::Value> {
+    let uri = entry.get("uri")?.as_str()?;
+    let (path, query) = match uri.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (uri, None),
+    };
+    // Extension of the LAST path segment only: a dot in a directory name is not
+    // a file type, and `.` / `..` are not extensions either.
+    let ext = path
+        .rsplit('/')
+        .next()
+        .and_then(|seg| seg.rsplit_once('.'))
+        .map(|(_, e)| e)
+        .filter(|e| !e.is_empty() && e.len() <= 8 && e.chars().all(|c| c.is_ascii_alphanumeric()));
+    if ext.is_none() && query.is_none() {
+        return None;
+    }
+    let mut out = entry.clone();
+    if let Some(obj) = out.as_object_mut() {
+        if let Some(e) = ext {
+            obj.insert("uri_extension".into(), serde_json::json!(e.to_lowercase()));
+        }
+        if let Some(q) = query {
+            obj.insert("uri_query".into(), serde_json::json!(q));
+        }
+    }
+    Some(out)
+}
+
 fn detect_zeek_log_type(entry: &serde_json::Value) -> String {
     // Check for tag field first (Fluent-Bit may set this)
     if let Some(tag) = entry["_tag"].as_str().or_else(|| entry["tag"].as_str()) {

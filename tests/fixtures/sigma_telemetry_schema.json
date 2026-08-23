@@ -235,5 +235,34 @@
   },
   "webserver.error": {
     "message": "2026/08/23 09:00:00 [error] 12#12: *1 open() failed"
+  },
+  "zeek.http": {
+    "method": "GET",
+    "host": "example.com",
+    "uri": "/downloads/setup.exe?v=2",
+    "uri_extension": "exe",
+    "uri_query": "v=2",
+    "user_agent": "Mozilla/5.0",
+    "referrer": "https://example.com/",
+    "status_code": 200,
+    "status_msg": "OK",
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "203.0.113.10",
+    "id.resp_p": 80,
+    "request_body_len": 0,
+    "response_body_len": 1024,
+    "uid": "CxT1"
+  },
+  "osquery.file": {
+    "target_path": "/etc/cron.d/backup",
+    "TargetFilename": "/etc/cron.d/backup",
+    "action": "CREATED",
+    "category": "etc",
+    "md5": "",
+    "sha256": "",
+    "uid": "0",
+    "gid": "0",
+    "mode": "0644",
+    "time": "1755939600"
   }
 }
