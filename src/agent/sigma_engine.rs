@@ -149,6 +149,10 @@ pub enum FieldMatcher {
     /// same event (case-insensitive). Used by anti-evasion rules where the
     /// expected token is itself in the event (e.g. ProcessId == ParentProcessId).
     FieldRef(String, String),
+    /// A selection written as a LIST of maps: OR between the groups, AND inside
+    /// each group. Sigma's own semantics — see the compile site for why this
+    /// cannot be flattened into the enclosing (ANDed) matcher vector.
+    AnyOfGroups(Vec<Vec<FieldMatcher>>),
 }
 
 impl FieldMatcher {
@@ -159,9 +163,33 @@ impl FieldMatcher {
     /// a rule whose fields never resolve (a field-mapping error) is surfaced
     /// loudly instead of dying silently. Exhaustive on purpose: a new variant
     /// won't compile until it declares its audited field.
-    fn audited_field(&self) -> Option<&str> {
+    /// Every field this matcher reads, recursing into OR groups. The audit needs
+    /// all of them: a rule whose only matcher is an `AnyOfGroups` would otherwise
+    /// look field-less and be skipped by the health oracle.
+    fn collect_audited_fields<'a>(&'a self, out: &mut Vec<&'a str>) {
+        match self {
+            FieldMatcher::AnyOfGroups(groups) => {
+                for g in groups {
+                    for m in g {
+                        m.collect_audited_fields(out);
+                    }
+                }
+            }
+            other => {
+                if let Some(f) = other.audited_field() {
+                    out.push(f);
+                }
+            }
+        }
+    }
+
+    /// `pub` so the satisfiability harness can tell a keyword matcher (empty
+    /// field, matched against the whole event) from a real field matcher.
+    pub fn audited_field(&self) -> Option<&str> {
         match self {
             FieldMatcher::Exists(_, _) => None,
+            // Not a single field — see `collect_audited_fields`.
+            FieldMatcher::AnyOfGroups(_) => None,
             FieldMatcher::Exact(f, _)
             | FieldMatcher::Contains(f, _)
             | FieldMatcher::StartsWith(f, _)
@@ -425,6 +453,16 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
                         // content (which has prefixes / suffixes). The pre-fix
                         // bug took out our V58 / V59 / V60 rules until V61.
                         let lower: Vec<String> = values.iter().map(|v| v.to_lowercase()).collect();
+                        // Keyword selection (no field name): the values are
+                        // substrings of the event body, never an exact equality.
+                        if field.is_empty() {
+                            matchers.push(if has_all {
+                                FieldMatcher::ContainsAll(field, lower)
+                            } else {
+                                FieldMatcher::ContainsAny(field, lower)
+                            });
+                            continue;
+                        }
                         match (modifier, has_all) {
                             ("contains", true) => {
                                 matchers.push(FieldMatcher::ContainsAll(field, lower));
@@ -454,9 +492,41 @@ fn compile_selection(name: &str, selection: &Value) -> Vec<FieldMatcher> {
             }
         }
         Value::Array(arr) => {
-            // Array of selection objects (OR between them)
-            for item in arr {
-                matchers.extend(compile_selection(name, item));
+            // Sigma spec: a selection written as a LIST of maps is an OR between
+            // the maps (the fields inside one map stay ANDed).
+            //
+            // This used to flatten every map into ONE matcher vector, and
+            // `eval_selection` ANDs a vector — so the rule silently became "all
+            // branches at the same time". A rule like
+            //   selection:
+            //     - Product: Sysinternals PsExec
+            //     - OriginalFileName: [certutil.exe, ...]
+            // then demanded a process that is BOTH PsExec AND certutil: it could
+            // never fire. 307 of the 984 shipped baseline rules are written this
+            // way. Compile each map into its own group and OR the groups.
+            // A list of plain strings is a Sigma KEYWORD selection ("any of these
+            // substrings appears in the event"), not a list of sub-selections.
+            // It used to compile to nothing at all, so the selection was empty
+            // and the rule could never fire.
+            let keywords: Vec<String> = arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|x| x.to_lowercase()))
+                .collect();
+            if !keywords.is_empty() && keywords.len() == arr.len() {
+                matchers.push(FieldMatcher::ContainsAny(String::new(), keywords));
+                return matchers;
+            }
+            let groups: Vec<Vec<FieldMatcher>> = arr
+                .iter()
+                .map(|item| compile_selection(name, item))
+                .filter(|g| !g.is_empty())
+                .collect();
+            match groups.len() {
+                0 => {}
+                // A single branch needs no OR wrapper — keep the flat shape so
+                // the common case stays cheap to evaluate.
+                1 => matchers.extend(groups.into_iter().next().unwrap_or_default()),
+                _ => matchers.push(FieldMatcher::AnyOfGroups(groups)),
             }
         }
         _ => {}
@@ -718,71 +788,133 @@ pub fn utf16le_string(value: &str) -> String {
 
 /// Parse a condition string into a Condition tree.
 ///
-/// Supports:
-///   - bare reference: `selection`
-///   - binary: `X and Y`, `X or Y`, `X and not Y`
-///   - unary:  `not X`
-///   - quantifier: `1 of X`, `all of X` where `X` is a name pattern
-///     (wildcard `*` or the literal `them`). Quantifiers fold to nested
-///     And/Or so the rest of the engine stays unaware of them.
+/// Recursive descent over `not` > `and` > `or`, with parentheses.
+///
+/// The previous version split on the FIRST ` and ` / ` or ` found anywhere in
+/// the string, which was wrong twice over:
+///   * parentheses were invisible, so `A and (B or C)` split into `A` and
+///     `"(B or C)"`, then into `"(B"` and `"C)"` — two selection names that do
+///     not exist, so the rule could never fire. 82 rules of the converted pack
+///     are written that way.
+///   * precedence was inverted: Sigma binds `and` tighter than `or`, but
+///     splitting on `and` first parsed `A or B and C` as `(A or B) and C`.
+///
+/// Supports: bare references, `and`/`or`/`not`, parentheses, and the
+/// quantifiers `1 of X` / `all of X` (with `*` patterns or the literal `them`),
+/// which fold to nested And/Or so the rest of the engine stays unaware of them.
 fn parse_condition(cond: &str, selections: &HashMap<String, Vec<FieldMatcher>>) -> Condition {
-    let cond = cond.trim();
-
-    // Handle "X and not Y"
-    if let Some(pos) = cond.find(" and not ") {
-        let left = &cond[..pos];
-        let right = &cond[pos + 9..];
-        return Condition::And(
-            Box::new(parse_condition(left, selections)),
-            Box::new(Condition::Not(Box::new(parse_condition(right, selections)))),
-        );
+    let tokens = tokenize_condition(cond);
+    if tokens.is_empty() {
+        return Condition::Ref(cond.trim().to_string());
     }
-
-    // Handle "X and Y"
-    if let Some(pos) = cond.find(" and ") {
-        let left = &cond[..pos];
-        let right = &cond[pos + 5..];
-        return Condition::And(
-            Box::new(parse_condition(left, selections)),
-            Box::new(parse_condition(right, selections)),
-        );
+    let mut pos = 0usize;
+    let parsed = parse_or(&tokens, &mut pos, selections);
+    // Trailing junk (unbalanced parens, unsupported syntax) — fall back to the
+    // literal reference so the behaviour stays "no match" rather than a panic.
+    if pos != tokens.len() {
+        return Condition::Ref(cond.trim().to_string());
     }
+    parsed
+}
 
-    // Handle "X or Y"
-    if let Some(pos) = cond.find(" or ") {
-        let left = &cond[..pos];
-        let right = &cond[pos + 4..];
-        return Condition::Or(
-            Box::new(parse_condition(left, selections)),
-            Box::new(parse_condition(right, selections)),
-        );
-    }
-
-    // Handle "not X"
-    if let Some(rest) = cond.strip_prefix("not ") {
-        return Condition::Not(Box::new(parse_condition(rest, selections)));
-    }
-
-    // Handle "1 of <pattern>" and "all of <pattern>". Pattern matching is
-    // intentionally simple (prefix*, *suffix, exact, or `them`) since this
-    // is what SigmaHQ actually emits in practice — full glob is overkill.
-    if let Some(pat) = cond.strip_prefix("1 of ") {
-        let names = expand_selection_pattern(pat.trim(), selections);
-        if names.is_empty() {
-            return Condition::Ref(cond.to_string());
+/// Split a condition into words and parentheses. Selection names may contain
+/// `*`, `_`, `-` and digits, so anything that is not whitespace or a paren is
+/// part of the current word.
+fn tokenize_condition(cond: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    for c in cond.chars() {
+        match c {
+            '(' | ')' => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+                out.push(c.to_string());
+            }
+            c if c.is_whitespace() => {
+                if !cur.is_empty() {
+                    out.push(std::mem::take(&mut cur));
+                }
+            }
+            c => cur.push(c),
         }
-        return fold_or(names);
     }
-    if let Some(pat) = cond.strip_prefix("all of ") {
-        let names = expand_selection_pattern(pat.trim(), selections);
-        if names.is_empty() {
-            return Condition::Ref(cond.to_string());
-        }
-        return fold_and(names);
+    if !cur.is_empty() {
+        out.push(cur);
     }
+    out
+}
 
-    // Simple reference
-    Condition::Ref(cond.to_string())
+fn parse_or(
+    t: &[String],
+    pos: &mut usize,
+    selections: &HashMap<String, Vec<FieldMatcher>>,
+) -> Condition {
+    let mut left = parse_and(t, pos, selections);
+    while t.get(*pos).map(|s| s.eq_ignore_ascii_case("or")) == Some(true) {
+        *pos += 1;
+        let right = parse_and(t, pos, selections);
+        left = Condition::Or(Box::new(left), Box::new(right));
+    }
+    left
+}
+
+fn parse_and(
+    t: &[String],
+    pos: &mut usize,
+    selections: &HashMap<String, Vec<FieldMatcher>>,
+) -> Condition {
+    let mut left = parse_not(t, pos, selections);
+    while t.get(*pos).map(|s| s.eq_ignore_ascii_case("and")) == Some(true) {
+        *pos += 1;
+        let right = parse_not(t, pos, selections);
+        left = Condition::And(Box::new(left), Box::new(right));
+    }
+    left
+}
+
+fn parse_not(
+    t: &[String],
+    pos: &mut usize,
+    selections: &HashMap<String, Vec<FieldMatcher>>,
+) -> Condition {
+    if t.get(*pos).map(|s| s.eq_ignore_ascii_case("not")) == Some(true) {
+        *pos += 1;
+        return Condition::Not(Box::new(parse_not(t, pos, selections)));
+    }
+    parse_primary(t, pos, selections)
+}
+
+fn parse_primary(
+    t: &[String],
+    pos: &mut usize,
+    selections: &HashMap<String, Vec<FieldMatcher>>,
+) -> Condition {
+    let Some(tok) = t.get(*pos) else {
+        return Condition::Ref(String::new());
+    };
+    if tok == "(" {
+        *pos += 1;
+        let inner = parse_or(t, pos, selections);
+        if t.get(*pos).map(|s| s.as_str()) == Some(")") {
+            *pos += 1;
+        }
+        return inner;
+    }
+    // `1 of <pattern>` / `all of <pattern>`
+    let is_quant = tok == "1" || tok.eq_ignore_ascii_case("all") || tok.eq_ignore_ascii_case("any");
+    if is_quant && t.get(*pos + 1).map(|s| s.eq_ignore_ascii_case("of")) == Some(true) {
+        let all = tok.eq_ignore_ascii_case("all");
+        let pattern = t.get(*pos + 2).cloned().unwrap_or_default();
+        *pos += 3;
+        let names = expand_selection_pattern(pattern.trim(), selections);
+        if names.is_empty() {
+            return Condition::Ref(pattern);
+        }
+        return if all { fold_and(names) } else { fold_or(names) };
+    }
+    *pos += 1;
+    Condition::Ref(tok.clone())
 }
 
 /// Expand a `1 of X` / `all of X` pattern into the concrete selection names
@@ -933,6 +1065,10 @@ fn eval_selection(
 /// Check a single field matcher against the log JSONB.
 fn eval_matcher(matcher: &FieldMatcher, log: &Value, matched: &mut Vec<(String, String)>) -> bool {
     match matcher {
+        // OR of AND-groups (a selection written as a list of maps).
+        FieldMatcher::AnyOfGroups(groups) => {
+            groups.iter().any(|g| eval_selection(g, log, matched))
+        }
         FieldMatcher::Exact(field, expected) => {
             if let Some(val) = find_field(log, field) {
                 let val_lower = val.to_lowercase();
@@ -1282,7 +1418,10 @@ fn sigma_match_fingerprint_with_log(
 fn is_symbolic_log_alias(field: &str) -> bool {
     matches!(
         field.to_lowercase().as_str(),
-        "full_log" | "raw_log" | "raw_text" | "log_text" | "message" | "body" | "log"
+        // "" is a Sigma KEYWORD selection: written without a field name, it is
+        // matched against the whole event. Without it here, every keyword rule
+        // resolved nothing and could never fire.
+        "" | "full_log" | "raw_log" | "raw_text" | "log_text" | "message" | "body" | "log"
     )
 }
 
@@ -2293,7 +2432,11 @@ fn detect_unresolved_field_rules(
             .matchers
             .values()
             .flatten()
-            .filter_map(|m| m.audited_field())
+            .fold(Vec::new(), |mut acc, m| {
+                m.collect_audited_fields(&mut acc);
+                acc
+            })
+            .into_iter()
             .filter(|f| !is_symbolic_log_alias(f))
             .collect();
         if fields.is_empty() {
@@ -2720,12 +2863,22 @@ mod tests {
         });
         let (selections, _cond) = compile_detection_for_tests(&detection).unwrap();
         let sel = selections.get("selection").expect("selection must compile");
-        let regex_count = sel
-            .iter()
-            .filter(|m| matches!(m, FieldMatcher::Regex(_, _)))
-            .count();
+        // The selection is a LIST of maps, i.e. an OR — it compiles to one
+        // AnyOfGroups holding the branches, so count regexes recursively. (This
+        // used to be a flat vector, back when the OR was wrongly ANDed.)
+        fn count_regex(ms: &[FieldMatcher]) -> usize {
+            ms.iter()
+                .map(|m| match m {
+                    FieldMatcher::Regex(_, _) => 1,
+                    FieldMatcher::AnyOfGroups(groups) => {
+                        groups.iter().map(|g| count_regex(g)).sum()
+                    }
+                    _ => 0,
+                })
+                .sum()
+        }
         assert!(
-            regex_count >= 1,
+            count_regex(sel) >= 1,
             "Expected at least one Regex matcher in compiled selection"
         );
     }
