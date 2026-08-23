@@ -3213,18 +3213,26 @@ mod tests {
     /// marquee rule ever stops matching real telemetry, this fails the build.
     #[test]
     fn marquee_windows_rules_fire_on_real_shape_telemetry() {
+        // The maison rules this test used to load left the bundle in "drop maison from
+        // the bundle" — they now reach the agent through the R2 pack. Point it at the
+        // SigmaHQ baseline that actually ships in-repo, keeping the same three marquee
+        // behaviours (NTDS exfil, LSASS dump, obfuscated PowerShell launcher). Each rule
+        // must be satisfiable by CommandLine alone: the telemetry below sets only that.
         let cases: &[(&str, &str)] = &[
             (
-                "rules/windows/sysmon-ntds-extraction.yaml",
+                // Suspicious Process Patterns NTDS.DIT Exfil
+                "rules/imported/windows-procs/8bc64091-6875-4881-aaf9-7bd25b5dda08.yaml",
                 r"ntdsutil.exe ac i ntds ifm create full C:\temp",
             ),
             (
-                "rules/windows/sysmon-lsass-comsvcs.yaml",
-                r"rundll32.exe C:\Windows\System32\comsvcs.dll, MiniDump 1234 C:\lsass.dmp full",
+                // HackTool - HandleKatz LSASS Dumper Execution
+                "rules/imported/windows-procs/ca621ba5-54ab-4035-9942-d378e6fcde3c.yaml",
+                r"loader.exe --pid:624 --outfile:C:\temp\lsass.dmp",
             ),
             (
-                "rules/windows/ps-obfusc-001.yaml",
-                "powershell.exe -NoP -W Hidden -enc SQBFAFgAIAA",
+                // HackTool - Empire PowerShell Launch Parameters
+                "rules/imported/windows-procs/79f4ede3-402e-41c8-bc3e-ebbf5f162581.yaml",
+                "powershell.exe -NoP -sta -NonI -W Hidden -Enc SQBFAFgAIAA=",
             ),
         ];
         for (path, cmdline) in cases {
