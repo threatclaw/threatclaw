@@ -154,6 +154,9 @@
       "operatingSystem": "Windows",
       "browser": "Edge",
       "deviceId": "did"
+    },
+    "ConsentContext": {
+      "IsAdminConsent": "false"
     }
   },
   "webserver": {

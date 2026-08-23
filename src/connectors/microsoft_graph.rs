@@ -771,10 +771,43 @@ impl AuditEvent {
             .and_then(|v| v.as_str())
     }
 
+    /// Whether this is an application-consent event and, if so, whether the
+    /// consent was granted tenant-wide by an admin. Graph buries this in the
+    /// `additionalDetails` key/value list; Azure Monitor exposes it as the flat
+    /// `ConsentContext.IsAdminConsent`, which is what the Sigma rules match.
+    ///
+    /// Returns `None` for anything that is not a consent event — emitting
+    /// `false` on every audit record would make an `IsAdminConsent: 'false'`
+    /// rule fire on the entire audit stream.
+    fn admin_consent_flag(&self) -> Option<bool> {
+        let is_consent = self.activity_display_name.contains("Consent to application")
+            || self.additional_details.iter().any(|d| {
+                d.get("key")
+                    .and_then(|k| k.as_str())
+                    .map(|k| k.eq_ignore_ascii_case("ConsentType"))
+                    .unwrap_or(false)
+            });
+        if !is_consent {
+            return None;
+        }
+        // Admin consent grants to AllPrincipals (tenant-wide); a user consent
+        // is scoped to the single principal that clicked through.
+        Some(self.additional_details.iter().any(|d| {
+            d.get("value")
+                .and_then(|v| v.as_str())
+                .map(|v| v.contains("AllPrincipals") || v.eq_ignore_ascii_case("Admin"))
+                .unwrap_or(false)
+        }))
+    }
+
     /// Normalise a Graph directory audit into the Azure-Monitor **AuditLogs** field
     /// taxonomy the Sigma `azure/auditlogs` rules are written against (OperationName,
     /// Category, InitiatedBy, TargetResources, …). Inserted under tag `m365.entra.audit`.
     pub fn to_auditlogs_data(&self) -> serde_json::Value {
+        // Lower-case string, the spelling the Sigma rules compare against.
+        let consent_context = self.admin_consent_flag().map(|admin| {
+            serde_json::json!({ "IsAdminConsent": if admin { "true" } else { "false" } })
+        });
         serde_json::json!({
             "OperationName": self.activity_display_name,
             "ActivityDisplayName": self.activity_display_name,
@@ -789,6 +822,7 @@ impl AuditEvent {
             // `properties.message` field. Our Graph shape carries it as ActivityDisplayName; expose
             // it under properties.message too (same value) so those rules resolve and fire correctly.
             "properties": { "message": self.activity_display_name },
+            "ConsentContext": consent_context,
         })
     }
 
@@ -1313,192 +1347,12 @@ pub async fn pull_risk_detections(
     fetch_collection(client, &path, MAX_PAGES).await
 }
 
-// ---------------------------------------------------------------------------
-// Detections — map Graph events to Sigma-style alerts
-// ---------------------------------------------------------------------------
-
-/// A detection candidate ready to be inserted as a sigma_alert. Built by
-/// `detect_from_audit` / `detect_from_signin`; consumed by
-/// `sync_microsoft_graph` which does the DB write.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Detection {
-    pub rule_id: &'static str,
-    pub level: &'static str, // critical | high | medium | low
-    pub title: String,
-    pub username: Option<String>,
-    pub source_ip: Option<String>,
-}
 
 /// The synthetic hostname used for every M365 alert. Graph events are
 /// tenant-wide, not endpoint-bound, so we tag them with a stable key the
 /// dashboard can filter on.
 fn m365_hostname(tenant_id: &str) -> String {
     format!("m365:{tenant_id}")
-}
-
-/// Check a single audit event against our catalog of high-value patterns.
-/// Returns `None` for events we do not care about — the vast majority.
-pub fn detect_from_audit(event: &AuditEvent) -> Option<Detection> {
-    // Only alert on successful actions — failed attempts are noise unless
-    // we are looking at brute force, which lives in the signIn path.
-    if !event.result.eq_ignore_ascii_case("success") {
-        return None;
-    }
-
-    let activity = event.activity_display_name.as_str();
-    let category = event.category.as_str();
-
-    // 1. Mail auto-forward rule — the single strongest indicator of a
-    //    compromised mailbox. Entra surfaces Exchange's mailbox-rule
-    //    changes via Graph audit under distinct activity names depending
-    //    on whether the change came from OWA (`Update inbox rules`) or
-    //    PowerShell (`New-InboxRule` / `Set-InboxRule`).
-    if activity == "Update inbox rules"
-        || activity == "New-InboxRule"
-        || activity == "Set-InboxRule"
-    {
-        return Some(Detection {
-            rule_id: "tc-m365-mail-forward-rule",
-            level: "high",
-            title: format!(
-                "M365 inbox rule modified (activity: {activity}) — possible mailbox compromise"
-            ),
-            username: event
-                .actor_upn()
-                .or_else(|| event.target_upn())
-                .map(String::from),
-            source_ip: None,
-        });
-    }
-
-    // 2. Illicit OAuth consent grant. `Consent to application` fires on
-    //    both admin and user consents; the risky one is the user consent
-    //    to a non-verified app. We emit `medium` for admin consent
-    //    (legitimate most of the time, still worth logging), `high` for
-    //    user consent (common illicit-consent attack pattern).
-    if category.eq_ignore_ascii_case("ApplicationManagement")
-        && activity == "Consent to application"
-    {
-        let is_admin_consent = event
-            .additional_details
-            .iter()
-            .filter_map(|d| d.get("key").and_then(|k| k.as_str()))
-            .any(|k| k.eq_ignore_ascii_case("ConsentType"))
-            && event.additional_details.iter().any(|d| {
-                d.get("value")
-                    .and_then(|v| v.as_str())
-                    .map(|v| v.contains("AllPrincipals") || v.eq_ignore_ascii_case("Admin"))
-                    .unwrap_or(false)
-            });
-        let level = if is_admin_consent { "medium" } else { "high" };
-        return Some(Detection {
-            rule_id: "tc-m365-oauth-consent",
-            level,
-            title: format!(
-                "OAuth application consent granted ({}) — verify app legitimacy",
-                if is_admin_consent { "admin" } else { "user" }
-            ),
-            username: event.actor_upn().map(String::from),
-            source_ip: None,
-        });
-    }
-
-    // 3. Global Admin (or any other directory role) added to a user. We
-    //    scan every targetResource and every modifiedProperty to catch
-    //    the role display name — it can appear either at the resource
-    //    level or in the property diff.
-    if activity == "Add member to role" || activity == "Add member to role in bulk" {
-        if let Some(role) = audit_extract_role_name(event) {
-            let critical = role.eq_ignore_ascii_case("Global Administrator")
-                || role.eq_ignore_ascii_case("Privileged Role Administrator")
-                || role.eq_ignore_ascii_case("Privileged Authentication Administrator");
-            return Some(Detection {
-                rule_id: "tc-m365-role-assignment",
-                level: if critical { "critical" } else { "medium" },
-                title: format!(
-                    "Directory role '{role}' assigned — {}",
-                    if critical {
-                        "high-impact privilege escalation"
-                    } else {
-                        "privileged role change"
-                    }
-                ),
-                username: event.target_upn().map(String::from),
-                source_ip: None,
-            });
-        }
-    }
-
-    None
-}
-
-/// Dig the role display name out of a `Add member to role` event. The
-/// role name lives in a `modifiedProperties` entry with `displayName =
-/// "Role.DisplayName"` on the target role resource.
-fn audit_extract_role_name(event: &AuditEvent) -> Option<String> {
-    for target in &event.target_resources {
-        let t_type = target.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if t_type != "Role" {
-            continue;
-        }
-
-        // Prefer modifiedProperties[].newValue — that's where the role
-        // name lives in practice. Fall back to displayName on the target
-        // resource itself when the property diff is absent.
-        if let Some(props) = target.get("modifiedProperties").and_then(|p| p.as_array()) {
-            for p in props {
-                let name = p.get("displayName").and_then(|n| n.as_str()).unwrap_or("");
-                if name.eq_ignore_ascii_case("Role.DisplayName") {
-                    if let Some(v) = p.get("newValue").and_then(|v| v.as_str()) {
-                        // MS Graph wraps the value in double quotes —
-                        // `"\"Global Administrator\""`. Strip them so
-                        // downstream comparisons are clean.
-                        return Some(v.trim_matches('"').to_string());
-                    }
-                }
-            }
-        }
-        if let Some(n) = target.get("displayName").and_then(|n| n.as_str()) {
-            return Some(n.to_string());
-        }
-    }
-    None
-}
-
-/// Check a single sign-in against the current catalog. Phase B only
-/// surfaces individual signals — MFA fatigue clustering and impossible
-/// travel land in the next patch once we have a time-window accumulator.
-pub fn detect_from_signin(event: &SignInEvent) -> Option<Detection> {
-    // Riskiest single-event indicator we can emit today: a successful
-    // sign-in from an anonymous proxy / Tor exit, which Entra flags via
-    // riskState/riskLevelDuringSignIn. We only look at high-risk here
-    // because the low/medium tiers are too noisy without a trained
-    // baseline.
-    let risk_level = event
-        .status
-        .get("additionalDetails")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    if risk_level.to_ascii_lowercase().contains("high") {
-        let ip = if event.ip_address.is_empty() {
-            None
-        } else {
-            Some(event.ip_address.clone())
-        };
-        return Some(Detection {
-            rule_id: "tc-m365-high-risk-signin",
-            level: "high",
-            title: format!(
-                "High-risk sign-in by {} from {}",
-                event.user_principal_name,
-                event.country().unwrap_or("unknown location")
-            ),
-            username: Some(event.user_principal_name.clone()),
-            source_ip: ip,
-        });
-    }
-    None
 }
 
 // ---------------------------------------------------------------------------
@@ -1581,20 +1435,9 @@ pub fn map_risk_level_user(s: Option<&str>) -> Option<&'static str> {
     }
 }
 
-/// Same mapping as [`map_risk_level_user`] but for single `riskDetection`
-/// events. One level lower because detections are candidates, not
-/// confirmed compromises — false-positive rate is higher.
-pub fn map_risk_level_detection(s: Option<&str>) -> Option<&'static str> {
-    match s.unwrap_or("").to_ascii_lowercase().as_str() {
-        "high" => Some("high"),
-        "medium" => Some("medium"),
-        "low" => Some("low"),
-        _ => None,
-    }
-}
-
-/// One sync cycle — connection check, audit pull, signIn pull, detection
-/// + sigma_alert writes, cursor advancement.
+/// One sync cycle — connection check, audit / signIn / risk pulls, raw-event
+/// ingestion for the Sigma engine, and cursor advancement. Detection itself
+/// lives in the rule pack, not here.
 pub async fn sync_microsoft_graph(
     store: &dyn crate::db::Database,
     config: &MicrosoftGraphConfig,
@@ -1647,10 +1490,11 @@ pub async fn sync_microsoft_graph(
                         Some(ev.activity_date_time.clone());
                 }
 
-                // Ingest the raw event into `logs` (SigninLogs/AuditLogs taxonomy) so the
-                // generic Sigma engine evaluates the azure/auditlogs rules against it. The
-                // hardcoded detect_from_audit below still runs (no regression) — it will be
-                // retired once the Sigma coverage supersedes it.
+                // Ingest the raw event into `logs` (SigninLogs/AuditLogs taxonomy): the
+                // generic Sigma engine evaluates the azure/auditlogs rules and our maison
+                // m365 rules against it. This replaced the hardcoded detections that used
+                // to live here — they bypassed the rule pipeline, so they had no compliance
+                // mapping, no playbook, no exception UI and no way to tune them.
                 crate::connectors::log_db_write(
                     "ms-graph:insert_log(audit)",
                     store.insert_log(
@@ -1662,25 +1506,6 @@ pub async fn sync_microsoft_graph(
                 )
                 .await;
 
-                if let Some(det) = detect_from_audit(ev) {
-                    match store
-                        .insert_sigma_alert(
-                            det.rule_id,
-                            det.level,
-                            &det.title,
-                            &hostname,
-                            det.source_ip.as_deref(),
-                            det.username.as_deref(),
-                        )
-                        .await
-                    {
-                        Ok(_) => result.alerts_inserted += 1,
-                        Err(e) => {
-                            result.insert_errors += 1;
-                            tracing::warn!("MS-GRAPH: insert_sigma_alert (audit) failed: {}", e);
-                        }
-                    }
-                }
             }
         }
         Err(e) => {
@@ -1724,7 +1549,6 @@ pub async fn sync_microsoft_graph(
 
                 // Ingest the raw sign-in into `logs` (SigninLogs taxonomy) so the generic
                 // Sigma engine evaluates the azure/signinlogs rules against real tenant data.
-                // The hardcoded detect_from_signin below still runs (no regression).
                 crate::connectors::log_db_write(
                     "ms-graph:insert_log(signin)",
                     store.insert_log(
@@ -1736,25 +1560,6 @@ pub async fn sync_microsoft_graph(
                 )
                 .await;
 
-                if let Some(det) = detect_from_signin(ev) {
-                    match store
-                        .insert_sigma_alert(
-                            det.rule_id,
-                            det.level,
-                            &det.title,
-                            &hostname,
-                            det.source_ip.as_deref(),
-                            det.username.as_deref(),
-                        )
-                        .await
-                    {
-                        Ok(_) => result.alerts_inserted += 1,
-                        Err(e) => {
-                            result.insert_errors += 1;
-                            tracing::warn!("MS-GRAPH: insert_sigma_alert (signin) failed: {}", e);
-                        }
-                    }
-                }
             }
         }
         Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
@@ -2146,10 +1951,11 @@ pub async fn sync_microsoft_graph(
                     }
                 }
 
-                // Ingest before the level filter below: the hardcoded path only
-                // alerts on high risk, the Sigma rules cover every riskEventType.
-                // `detectedDateTime` is optional in Graph and insert_log rejects a
-                // non-RFC3339 timestamp, so fall back to now rather than drop the event.
+                // The 19 SigmaHQ azure/riskdetection rules cover every riskEventType,
+                // which is why the hardcoded high-risk-only alert that used to follow
+                // this ingest is gone. `detectedDateTime` is optional in Graph and
+                // insert_log rejects a non-RFC3339 timestamp, so fall back to now
+                // rather than drop the event.
                 let detected_at = d
                     .detected_date_time
                     .clone()
@@ -2165,42 +1971,6 @@ pub async fn sync_microsoft_graph(
                 )
                 .await;
 
-                let level = match map_risk_level_detection(d.risk_level.as_deref()) {
-                    Some(l) => l,
-                    None => continue,
-                };
-                let event_type = d.risk_event_type.as_deref().unwrap_or("unknown");
-                let title = format!(
-                    "Entra ID risk detection: {} (user={})",
-                    event_type,
-                    d.user_principal_name.as_deref().unwrap_or("?"),
-                );
-                let rule_id = format!(
-                    "tc-m365-risk-{}",
-                    event_type
-                        .to_lowercase()
-                        .replace(|c: char| !c.is_ascii_alphanumeric(), "-")
-                );
-                match store
-                    .insert_sigma_alert(
-                        &rule_id,
-                        level,
-                        &title,
-                        &hostname,
-                        d.ip_address.as_deref(),
-                        d.user_principal_name.as_deref(),
-                    )
-                    .await
-                {
-                    Ok(_) => result.alerts_inserted += 1,
-                    Err(e) => {
-                        result.insert_errors += 1;
-                        tracing::warn!(
-                            "MS-GRAPH: insert_sigma_alert (risk_detection) failed: {}",
-                            e
-                        );
-                    }
-                }
             }
         }
         Err(GraphError::Forbidden(_)) | Err(GraphError::LicenceLimited(_)) => {
@@ -2406,6 +2176,42 @@ mod tests {
         );
     }
 
+    /// `ConsentContext.IsAdminConsent` carries the admin-vs-user distinction the
+    /// rules use to rate a consent grant. It must appear ONLY on consent events:
+    /// emitting `false` on every audit record would make an
+    /// `IsAdminConsent: 'false'` rule fire on the whole audit stream.
+    #[test]
+    fn consent_context_is_scoped_to_consent_events() {
+        let admin = audit_from_json(serde_json::json!({
+            "id": "c1", "activityDateTime": "2026-08-23T09:00:00Z",
+            "activityDisplayName": "Consent to application", "category": "ApplicationManagement",
+            "result": "success",
+            "additionalDetails": [
+                { "key": "ConsentType", "value": "AllPrincipals" },
+                { "key": "ConsentAction.Permissions", "value": "Mail.Read" }
+            ]
+        }));
+        assert_eq!(admin.to_auditlogs_data()["ConsentContext"]["IsAdminConsent"], "true");
+
+        let user = audit_from_json(serde_json::json!({
+            "id": "c2", "activityDateTime": "2026-08-23T09:01:00Z",
+            "activityDisplayName": "Consent to application", "category": "ApplicationManagement",
+            "result": "success",
+            "additionalDetails": [{ "key": "ConsentType", "value": "Principal" }]
+        }));
+        assert_eq!(user.to_auditlogs_data()["ConsentContext"]["IsAdminConsent"], "false");
+
+        let unrelated = audit_from_json(serde_json::json!({
+            "id": "c3", "activityDateTime": "2026-08-23T09:02:00Z",
+            "activityDisplayName": "Add member to role", "category": "RoleManagement",
+            "result": "success"
+        }));
+        assert!(
+            unrelated.to_auditlogs_data()["ConsentContext"].is_null(),
+            "a non-consent audit event must not carry a consent verdict"
+        );
+    }
+
     #[test]
     fn audit_normalises_to_auditlogs_taxonomy() {
         let ev = audit_from_json(serde_json::json!({
@@ -2438,199 +2244,6 @@ mod tests {
             enc_iso("2026-04-23T10:30:00.123Z"),
             "2026-04-23T10%3A30%3A00.123Z"
         );
-    }
-
-    #[test]
-    fn detect_mail_forward_rule_from_owa() {
-        // Shape captured from a real Graph response — OWA-initiated inbox
-        // rule update.
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Update inbox rules",
-            "category": "ApplicationManagement",
-            "result": "success",
-            "initiatedBy": {
-                "user": { "userPrincipalName": "jean@contoso.com" }
-            },
-            "targetResources": [{
-                "type": "User",
-                "userPrincipalName": "jean@contoso.com"
-            }]
-        }));
-        let det = detect_from_audit(&ev).expect("should detect");
-        assert_eq!(det.rule_id, "tc-m365-mail-forward-rule");
-        assert_eq!(det.level, "high");
-        assert_eq!(det.username.as_deref(), Some("jean@contoso.com"));
-    }
-
-    #[test]
-    fn detect_mail_forward_rule_from_powershell() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "New-InboxRule",
-            "category": "Exchange",
-            "result": "success",
-            "initiatedBy": {
-                "user": { "userPrincipalName": "jean@contoso.com" }
-            }
-        }));
-        let det = detect_from_audit(&ev).expect("should detect");
-        assert_eq!(det.rule_id, "tc-m365-mail-forward-rule");
-    }
-
-    #[test]
-    fn detect_skips_failed_audit_events() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Update inbox rules",
-            "category": "ApplicationManagement",
-            "result": "failure",
-            "initiatedBy": {}
-        }));
-        assert!(detect_from_audit(&ev).is_none());
-    }
-
-    #[test]
-    fn detect_oauth_user_consent_is_high() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Consent to application",
-            "category": "ApplicationManagement",
-            "result": "success",
-            "initiatedBy": {
-                "user": { "userPrincipalName": "jean@contoso.com" }
-            },
-            "additionalDetails": [
-                { "key": "ConsentType", "value": "Principal" }
-            ]
-        }));
-        let det = detect_from_audit(&ev).expect("should detect");
-        assert_eq!(det.rule_id, "tc-m365-oauth-consent");
-        assert_eq!(det.level, "high"); // user consent — higher risk
-    }
-
-    #[test]
-    fn detect_oauth_admin_consent_is_medium() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Consent to application",
-            "category": "ApplicationManagement",
-            "result": "success",
-            "initiatedBy": { "user": { "userPrincipalName": "admin@contoso.com" } },
-            "additionalDetails": [
-                { "key": "ConsentType", "value": "AllPrincipals" }
-            ]
-        }));
-        let det = detect_from_audit(&ev).expect("should detect");
-        assert_eq!(det.level, "medium");
-    }
-
-    #[test]
-    fn detect_global_admin_added_is_critical() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Add member to role",
-            "category": "RoleManagement",
-            "result": "success",
-            "initiatedBy": { "user": { "userPrincipalName": "rogue@contoso.com" } },
-            "targetResources": [
-                {
-                    "type": "User",
-                    "userPrincipalName": "victim@contoso.com"
-                },
-                {
-                    "type": "Role",
-                    "displayName": "Global Administrator",
-                    "modifiedProperties": [
-                        {
-                            "displayName": "Role.DisplayName",
-                            "newValue": "\"Global Administrator\""
-                        }
-                    ]
-                }
-            ]
-        }));
-        let det = detect_from_audit(&ev).expect("should detect");
-        assert_eq!(det.rule_id, "tc-m365-role-assignment");
-        assert_eq!(det.level, "critical");
-        assert_eq!(det.username.as_deref(), Some("victim@contoso.com"));
-    }
-
-    #[test]
-    fn detect_non_critical_role_is_medium() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Add member to role",
-            "category": "RoleManagement",
-            "result": "success",
-            "initiatedBy": { "user": { "userPrincipalName": "admin@contoso.com" } },
-            "targetResources": [
-                { "type": "User", "userPrincipalName": "new@contoso.com" },
-                {
-                    "type": "Role",
-                    "displayName": "Message Center Reader",
-                    "modifiedProperties": [
-                        {
-                            "displayName": "Role.DisplayName",
-                            "newValue": "\"Message Center Reader\""
-                        }
-                    ]
-                }
-            ]
-        }));
-        let det = detect_from_audit(&ev).expect("should detect");
-        assert_eq!(det.level, "medium");
-    }
-
-    #[test]
-    fn detect_ignores_uninteresting_activity() {
-        let ev = audit_from_json(serde_json::json!({
-            "id": "abc",
-            "activityDateTime": "2026-04-23T10:00:00Z",
-            "activityDisplayName": "Update user",
-            "category": "UserManagement",
-            "result": "success",
-            "initiatedBy": {}
-        }));
-        assert!(detect_from_audit(&ev).is_none());
-    }
-
-    #[test]
-    fn detect_high_risk_signin() {
-        let ev = signin_from_json(serde_json::json!({
-            "id": "s1",
-            "createdDateTime": "2026-04-23T10:00:00Z",
-            "userPrincipalName": "jean@contoso.com",
-            "ipAddress": "185.220.101.42",
-            "status": {
-                "errorCode": 0,
-                "additionalDetails": "High risk detected"
-            },
-            "location": { "countryOrRegion": "RU" }
-        }));
-        let det = detect_from_signin(&ev).expect("should detect");
-        assert_eq!(det.rule_id, "tc-m365-high-risk-signin");
-        assert_eq!(det.source_ip.as_deref(), Some("185.220.101.42"));
-        assert!(det.title.contains("RU"));
-    }
-
-    #[test]
-    fn detect_normal_signin_is_silent() {
-        let ev = signin_from_json(serde_json::json!({
-            "id": "s2",
-            "createdDateTime": "2026-04-23T10:00:00Z",
-            "userPrincipalName": "jean@contoso.com",
-            "ipAddress": "10.0.0.1",
-            "status": { "errorCode": 0, "additionalDetails": "None" }
-        }));
-        assert!(detect_from_signin(&ev).is_none());
     }
 
     #[test]
@@ -2776,13 +2389,6 @@ mod tests {
         assert_eq!(map_risk_level_user(None), None);
     }
 
-    #[test]
-    fn map_risk_level_detection_is_one_notch_lower() {
-        assert_eq!(map_risk_level_detection(Some("high")), Some("high"));
-        assert_eq!(map_risk_level_detection(Some("medium")), Some("medium"));
-        assert_eq!(map_risk_level_detection(Some("low")), Some("low"));
-        assert_eq!(map_risk_level_detection(Some("none")), None);
-    }
 
     #[test]
     fn graph_page_parses_delta_and_next_links() {
