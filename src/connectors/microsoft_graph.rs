@@ -1240,6 +1240,26 @@ pub struct RiskDetection {
     pub detected_date_time: Option<String>,
 }
 
+impl RiskDetection {
+    /// Normalise a Graph risk detection for the Sigma engine. The SigmaHQ
+    /// `azure/riskdetection` rules match the Graph field names verbatim
+    /// (`riskEventType: 'impossibleTravel'`, …), so we keep that spelling and
+    /// insert under tag `m365.entra.risk`. Emitted for EVERY detection —
+    /// including the low/medium ones the hardcoded path below skips — because
+    /// the rules, not the connector, decide what is worth an alert.
+    pub fn to_riskdetection_data(&self) -> serde_json::Value {
+        serde_json::json!({
+            "riskEventType": self.risk_event_type,
+            "riskLevel": self.risk_level,
+            "userPrincipalName": self.user_principal_name,
+            "ipAddress": self.ip_address,
+            "location": self.location,
+            "activity": self.activity,
+            "detectedDateTime": self.detected_date_time,
+        })
+    }
+}
+
 /// Pull Defender unified alerts. Requires E5 / Defender standalone.
 pub async fn pull_security_alerts_v2(
     client: &GraphClient,
@@ -2126,6 +2146,25 @@ pub async fn sync_microsoft_graph(
                     }
                 }
 
+                // Ingest before the level filter below: the hardcoded path only
+                // alerts on high risk, the Sigma rules cover every riskEventType.
+                // `detectedDateTime` is optional in Graph and insert_log rejects a
+                // non-RFC3339 timestamp, so fall back to now rather than drop the event.
+                let detected_at = d
+                    .detected_date_time
+                    .clone()
+                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+                crate::connectors::log_db_write(
+                    "ms-graph:insert_log(risk)",
+                    store.insert_log(
+                        "m365.entra.risk",
+                        &hostname,
+                        &d.to_riskdetection_data(),
+                        &detected_at,
+                    ),
+                )
+                .await;
+
                 let level = match map_risk_level_detection(d.risk_level.as_deref()) {
                     Some(l) => l,
                     None => continue,
@@ -2307,6 +2346,63 @@ mod tests {
         assert!(
             match_rule_for_tests(&rule, &log2, Some("m365.entra.signin")).is_none(),
             "benign sign-in must not fire"
+        );
+    }
+
+    /// END-TO-END contract for Identity Protection: the 19 SigmaHQ
+    /// `azure/riskdetection` rules all match a single field (`riskEventType`)
+    /// under tag `m365.entra.risk`. Proves the Graph spelling we emit is the
+    /// one they match, and that a different risk type does not fire.
+    #[test]
+    fn m365_risk_detection_rule_fires_end_to_end_through_the_engine() {
+        use crate::agent::sigma_engine::{compile_detection_for_tests, match_rule_for_tests, CompiledRule};
+
+        let rule_json = serde_json::json!({
+            "id": "tc-m365-impossible-travel",
+            "logsource": { "product": "entra", "category": "m365", "service": "risk" },
+            "detection": {
+                "selection": { "riskEventType": "impossibleTravel" },
+                "condition": "selection"
+            }
+        });
+        let (matchers, condition) =
+            compile_detection_for_tests(&rule_json["detection"]).expect("rule compiles");
+        let rule = CompiledRule {
+            id: "tc-m365-impossible-travel".into(),
+            title: "Impossible travel".into(),
+            level: "high".into(),
+            logsource_category: Some("m365".into()),
+            logsource_product: Some("entra".into()),
+            logsource_service: Some("risk".into()),
+            tags: vec![],
+            matchers,
+            condition,
+            disposition: "detect".into(),
+            tier: "queue".into(),
+            risk_score: None,
+        };
+
+        let mk = |kind: &str| RiskDetection {
+            id: "r1".into(),
+            user_principal_name: Some("dave@contoso.com".into()),
+            risk_event_type: Some(kind.into()),
+            risk_level: Some("high".into()),
+            ip_address: Some("198.51.100.20".into()),
+            location: Some(serde_json::json!({ "countryOrRegion": "FR" })),
+            activity: Some("signin".into()),
+            detected_date_time: Some("2026-08-23T09:00:00Z".into()),
+        };
+
+        let hit = serde_json::json!({ "data": mk("impossibleTravel").to_riskdetection_data() });
+        assert!(
+            match_rule_for_tests(&rule, &hit, Some("m365.entra.risk")).is_some(),
+            "impossibleTravel must fire the riskdetection rule end-to-end"
+        );
+
+        let miss = serde_json::json!({ "data": mk("unfamiliarFeatures").to_riskdetection_data() });
+        assert!(
+            match_rule_for_tests(&rule, &miss, Some("m365.entra.risk")).is_none(),
+            "a different riskEventType must not fire this rule"
         );
     }
 
