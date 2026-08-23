@@ -512,6 +512,22 @@ fn extract_windows_logon(alert: &serde_json::Value) -> Option<WindowsLogonEvent>
 ///     4769/4771/4776) emit a LOGGED_IN edge so /users shows login history.
 ///   - Counts: every skip/insert is accounted for in `result` so operators
 ///     can tell the difference between a quiet SOC and a broken pipeline.
+/// The OpenCanary payload inside a Wazuh alert, or `None` when the alert is
+/// something else. OpenCanary's JSON always carries `logtype` (the event code
+/// the Sigma rules match) plus `node_id`/`logdata`; requiring more than
+/// `logtype` alone keeps an unrelated decoder that happens to use that name
+/// from being republished as honeypot telemetry.
+fn opencanary_payload(alert: &serde_json::Value) -> Option<&serde_json::Value> {
+    let data = alert.get("data")?;
+    if data.get("logtype").is_none() {
+        return None;
+    }
+    if data.get("node_id").is_none() && data.get("logdata").is_none() {
+        return None;
+    }
+    Some(data)
+}
+
 async fn import_wazuh_alert(
     store: &dyn Database,
     alert: &serde_json::Value,
@@ -609,6 +625,20 @@ async fn import_wazuh_alert(
     // engine loses visibility for this event — not fatal for sigma_alerts
     // which has its own path but worth surfacing.
     let now = chrono::Utc::now().to_rfc3339();
+
+    // OpenCanary honeypot hits reach us through Wazuh's JSON decoder, so their
+    // fields sit two levels deep (row `data` = the alert, alert `data` = the
+    // honeypot payload). The 24 SigmaHQ opencanary rules match a bare `logtype`,
+    // which no amount of field-mapping resolves through that double nesting.
+    // Emit the payload again under its own tag with the fields at the top level.
+    if let Some(oc) = opencanary_payload(alert) {
+        crate::connectors::log_db_write(
+            "wazuh:insert_log(opencanary)",
+            store.insert_log("opencanary", agent_name, oc, &now),
+        )
+        .await;
+    }
+
     if let Err(e) = store
         .insert_log("wazuh.alert", agent_name, alert, &now)
         .await
@@ -834,6 +864,60 @@ async fn fetch_alerts_from_indexer(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// END-TO-END contract: an OpenCanary alert relayed by Wazuh must fire the
+    /// SigmaHQ opencanary rules, which match a bare `logtype`. Without the
+    /// dedicated tag the field sits at data.data.logtype and no rule reaches it.
+    #[test]
+    fn opencanary_payload_is_republished_flat_and_fires_its_rule() {
+        use crate::agent::sigma_engine::{
+            compile_detection_for_tests, match_rule_for_tests, CompiledRule,
+        };
+        let alert = json!({
+            "rule": { "level": 10, "id": "100200", "description": "OpenCanary" },
+            "agent": { "name": "canary-01" },
+            "data": {
+                "logtype": 5005, "node_id": "canary-01",
+                "src_host": "203.0.113.9", "dst_port": 21,
+                "logdata": { "USERNAME": "admin", "PASSWORD": "admin" }
+            }
+        });
+        let oc = opencanary_payload(&alert).expect("recognised as OpenCanary");
+
+        let detection = json!({ "selection": { "logtype": 5005 }, "condition": "selection" });
+        let (matchers, condition) =
+            compile_detection_for_tests(&detection).expect("rule compiles");
+        let rule = CompiledRule {
+            id: "tc-opencanary-ftp".into(),
+            title: "FTP login attempt on honeypot".into(),
+            level: "high".into(),
+            logsource_category: Some("opencanary".into()),
+            logsource_product: None,
+            logsource_service: None,
+            tags: vec![],
+            matchers,
+            condition,
+            disposition: "detect".into(),
+            tier: "queue".into(),
+            risk_score: None,
+        };
+        let log = json!({ "data": oc });
+        assert!(
+            match_rule_for_tests(&rule, &log, Some("opencanary")).is_some(),
+            "an OpenCanary logtype must fire its rule end-to-end"
+        );
+    }
+
+    #[test]
+    fn non_opencanary_alerts_are_not_republished() {
+        // A Windows logon alert: no logtype at all.
+        let win = json!({ "data": { "srcip": "10.0.0.1", "dstuser": "admin" } });
+        assert!(opencanary_payload(&win).is_none());
+        // A decoder that happens to use `logtype` but is not the honeypot:
+        // without node_id/logdata we do not claim it as OpenCanary telemetry.
+        let other = json!({ "data": { "logtype": "syslog" } });
+        assert!(opencanary_payload(&other).is_none());
+    }
 
     fn base_config() -> WazuhConfig {
         WazuhConfig {

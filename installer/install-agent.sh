@@ -565,6 +565,38 @@ try:
 except OSError:
     pass  # no web server, or the log is root-only and we are not root
 
+# Web error-log delta. Same discipline again. The value here is narrow but real:
+# a segfault or worker crash on a public-facing server is what a memory-corruption
+# exploit looks like from the outside, and the SigmaHQ apache/nginx rules match it.
+ERROR_LOGS = [
+    "/var/log/nginx/error.log",
+    "/var/log/apache2/error.log",
+    "/var/log/httpd/error_log",
+]
+error_off = int(state.get("error_offset", 0) or 0)
+error_path = state.get("error_path") or ""
+try:
+    chosen_err = error_path if (error_path and os.path.exists(error_path)) else next(
+        (p for p in ERROR_LOGS if os.path.exists(p) and os.access(p, os.R_OK)), "")
+    if chosen_err != error_path:
+        error_off, error_path = 0, chosen_err
+    if error_path:
+        error_size = os.path.getsize(error_path)
+        if error_size < error_off:
+            error_off = 0
+        if error_size > error_off:
+            with open(error_path, "rb") as f:
+                f.seek(error_off)
+                chunk = f.read(ACCESS_MAX_BYTES)
+            cut = chunk.rfind(b"\n") + 1
+            if cut > 0:
+                lines = chunk[:cut].decode("utf-8", "replace").splitlines()
+                if lines:
+                    payload["error_log"] = lines
+                error_off += cut
+except OSError:
+    pass
+
 # auditd delta: ship the new bytes of the audit log so the server can parse each
 # record into fields — the SigmaHQ linux/auditd rules match `type`/`a0`…/`name`/
 # `exe`/`key`, which an opaque syslog line can never resolve. The offset lives in
@@ -606,7 +638,8 @@ with open(os.path.join(workdir, "payload.json"), "w") as f:
 # failed sync re-sends the exact same delta next cycle (nothing lost).
 with open(os.path.join(workdir, "state_new.json"), "w") as f:
     json.dump({"hashes": new_hashes, "last_full": last_full, "auditd_offset": audit_off,
-               "access_offset": access_off, "access_path": access_path}, f)
+               "access_offset": access_off, "access_path": access_path,
+               "error_offset": error_off, "error_path": error_path}, f)
 PYEOF
 
 # Negotiate gzip: only compress if the server advertises accepts_gzip in its

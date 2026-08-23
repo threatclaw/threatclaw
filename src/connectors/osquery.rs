@@ -1316,6 +1316,26 @@ pub async fn process_osquery_webhook(
         result.logs_processed += n as usize;
     }
 
+    // Web server ERROR log. The SigmaHQ apache/nginx rules are keyword searches
+    // over the line ("exit signal Segmentation Fault"), so the raw line is what
+    // they need — a crash on a public-facing server is how a memory-corruption
+    // exploit looks from the outside.
+    if let Some(lines) = body["error_log"].as_array() {
+        let now = chrono::Utc::now().to_rfc3339();
+        for line in lines.iter().filter_map(|v| v.as_str()) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            sink.emit(
+                "webserver.error",
+                hostname,
+                &serde_json::json!({ "message": line }),
+                &now,
+            );
+            result.logs_processed += 1;
+        }
+    }
+
     // Raw /var/log/audit/audit.log lines shipped by the Linux agent in the same
     // POST (one agent, one token, one timer). Parsed into per-field JSON under
     // tag `linux.auditd` so the SigmaHQ linux/auditd rules resolve — as opaque

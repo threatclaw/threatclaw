@@ -219,5 +219,21 @@
     "tty": "pts0",
     "cwd": "/root",
     "proctitle": "bash"
+  },
+  "opencanary": {
+    "logtype": 5005,
+    "node_id": "canary-01",
+    "src_host": "203.0.113.9",
+    "src_port": 51234,
+    "dst_host": "10.0.0.5",
+    "dst_port": 21,
+    "local_time": "2026-08-23 09:00:00",
+    "logdata": {
+      "USERNAME": "admin",
+      "PASSWORD": "admin"
+    }
+  },
+  "webserver.error": {
+    "message": "2026/08/23 09:00:00 [error] 12#12: *1 open() failed"
   }
 }
