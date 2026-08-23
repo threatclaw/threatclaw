@@ -805,11 +805,39 @@ fn detect_zeek_log_type(entry: &serde_json::Value) -> String {
     if entry.get("query").is_some() && entry.get("qtype_name").is_some() {
         return "zeek.dns".into();
     }
+    // x509 before ssl: a certificate record has none of ssl.log's fields, and the
+    // SigmaHQ rules that read `certificate.serial` need their own tag.
+    if entry.get("certificate").is_some() || entry.get("certificate.serial").is_some() {
+        return "zeek.x509".into();
+    }
     if entry.get("server_name").is_some()
         || entry.get("ja3").is_some()
         || entry.get("validation_status").is_some()
     {
         return "zeek.ssl".into();
+    }
+    // Zeek emits these by default and the SigmaHQ zeek rules are written against
+    // them (lateral movement over SMB/DCE-RPC, Kerberos ticket anomalies). They
+    // used to fall through to zeek.unknown, so no rule could ever be routed to
+    // them. Checked before the broader conn/ssh signatures below, which share
+    // some field names.
+    if entry.get("endpoint").is_some() && entry.get("operation").is_some() {
+        return "zeek.dce_rpc".into();
+    }
+    if entry.get("request_type").is_some() && entry.get("service").is_some() {
+        return "zeek.kerberos".into();
+    }
+    if entry.get("share_type").is_some() {
+        return "zeek.smb_mapping".into();
+    }
+    if entry.get("action").is_some() && entry.get("path").is_some() {
+        return "zeek.smb_files".into();
+    }
+    if entry.get("domainname").is_some() && entry.get("username").is_some() {
+        return "zeek.ntlm".into();
+    }
+    if entry.get("security_protocol").is_some() || entry.get("keyboard_layout").is_some() {
+        return "zeek.rdp".into();
     }
     if entry.get("method").is_some()
         && entry.get("uri").is_some()

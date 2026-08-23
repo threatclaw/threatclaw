@@ -264,5 +264,76 @@
     "gid": "0",
     "mode": "0644",
     "time": "1755939600"
+  },
+  "zeek.dns": {
+    "query": "example.com",
+    "qtype_name": "A",
+    "answers": [
+      "203.0.113.1"
+    ],
+    "rcode_name": "NOERROR",
+    "rejected": false,
+    "Z": 0,
+    "AA": false,
+    "RD": true,
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "10.0.0.1",
+    "id.resp_p": 53,
+    "proto": "udp"
+  },
+  "zeek.dce_rpc": {
+    "endpoint": "svcctl",
+    "operation": "CreateServiceW",
+    "named_pipe": "\\\\pipe\\\\svcctl",
+    "rtt": 0.01,
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "10.0.0.9"
+  },
+  "zeek.smb_files": {
+    "action": "SMB::FILE_OPEN",
+    "path": "\\\\\\\\SRV\\\\ADMIN$",
+    "name": "PSEXESVC.exe",
+    "size": 0,
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "10.0.0.9"
+  },
+  "zeek.smb_mapping": {
+    "path": "\\\\\\\\SRV\\\\IPC$",
+    "share_type": "PIPE",
+    "service": "IPC",
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "10.0.0.9"
+  },
+  "zeek.kerberos": {
+    "request_type": "TGS",
+    "client": "user/EXAMPLE.COM",
+    "service": "cifs/srv",
+    "success": true,
+    "cipher": "aes256-cts-hmac-sha1-96",
+    "forwardable": true,
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "10.0.0.1"
+  },
+  "zeek.ntlm": {
+    "username": "user",
+    "hostname": "WKS01",
+    "domainname": "EXAMPLE",
+    "server_nb_computer_name": "SRV",
+    "success": true,
+    "id.orig_h": "10.0.0.5"
+  },
+  "zeek.rdp": {
+    "cookie": "user",
+    "result": "Success",
+    "security_protocol": "HYBRID",
+    "keyboard_layout": "French",
+    "id.orig_h": "10.0.0.5",
+    "id.resp_h": "10.0.0.9"
+  },
+  "zeek.x509": {
+    "certificate.serial": "01",
+    "certificate.subject": "CN=example",
+    "certificate.issuer": "CN=ca",
+    "certificate.not_valid_before": "2026-01-01"
   }
 }
