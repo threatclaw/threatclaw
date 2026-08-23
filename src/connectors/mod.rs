@@ -102,5 +102,6 @@ pub mod veeam;
 pub mod velociraptor;
 pub mod velociraptor_proto;
 pub mod wazuh;
+pub mod weblog;
 pub mod webhook_ingest;
 pub mod zeek;

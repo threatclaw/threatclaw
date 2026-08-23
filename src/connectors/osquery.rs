@@ -1307,6 +1307,15 @@ pub async fn process_osquery_webhook(
         result.alerts_created += alerts;
     }
 
+    // Web server access-log lines shipped by the Linux agent in the same POST.
+    // Parsed into the W3C field names the SigmaHQ `webserver` rules match
+    // (cs-method / cs-uri-query / sc-status / cs-user-agent) — before this the
+    // whole webserver logsource had no data at all.
+    if let Some(lines) = body["access_log"].as_array() {
+        let n = crate::connectors::weblog::ingest_access_logs(sink, hostname, lines);
+        result.logs_processed += n as usize;
+    }
+
     // Raw /var/log/audit/audit.log lines shipped by the Linux agent in the same
     // POST (one agent, one token, one timer). Parsed into per-field JSON under
     // tag `linux.auditd` so the SigmaHQ linux/auditd rules resolve — as opaque

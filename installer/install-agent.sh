@@ -531,6 +531,40 @@ inventory = {
     "interface_details": load("ifaces.json", []),
     "docker_containers": load("docker.json", []),
 }
+# Web access-log delta, same discipline as the audit log below: byte offset in
+# the shared state file (promoted only on a 200), capped, cut on a line boundary.
+# Only the first readable path is followed — shipping nginx AND apache AND every
+# vhost file would multiply the payload for no detection gain.
+ACCESS_LOGS = [
+    "/var/log/nginx/access.log",
+    "/var/log/apache2/access.log",
+    "/var/log/httpd/access_log",
+]
+ACCESS_MAX_BYTES = 2_000_000
+access_off = int(state.get("access_offset", 0) or 0)
+access_path = state.get("access_path") or ""
+try:
+    chosen = access_path if (access_path and os.path.exists(access_path)) else next(
+        (p for p in ACCESS_LOGS if os.path.exists(p) and os.access(p, os.R_OK)), "")
+    if chosen != access_path:      # first run, or the server changed
+        access_off, access_path = 0, chosen
+    if access_path:
+        access_size = os.path.getsize(access_path)
+        if access_size < access_off:   # rotated
+            access_off = 0
+        if access_size > access_off:
+            with open(access_path, "rb") as f:
+                f.seek(access_off)
+                chunk = f.read(ACCESS_MAX_BYTES)
+            cut = chunk.rfind(b"\n") + 1
+            if cut > 0:
+                lines = chunk[:cut].decode("utf-8", "replace").splitlines()
+                if lines:
+                    payload["access_log"] = lines
+                access_off += cut
+except OSError:
+    pass  # no web server, or the log is root-only and we are not root
+
 # auditd delta: ship the new bytes of the audit log so the server can parse each
 # record into fields — the SigmaHQ linux/auditd rules match `type`/`a0`…/`name`/
 # `exe`/`key`, which an opaque syslog line can never resolve. The offset lives in
@@ -571,7 +605,8 @@ with open(os.path.join(workdir, "payload.json"), "w") as f:
 # Candidate state — promoted to STATE by the sync script only after a 200, so a
 # failed sync re-sends the exact same delta next cycle (nothing lost).
 with open(os.path.join(workdir, "state_new.json"), "w") as f:
-    json.dump({"hashes": new_hashes, "last_full": last_full, "auditd_offset": audit_off}, f)
+    json.dump({"hashes": new_hashes, "last_full": last_full, "auditd_offset": audit_off,
+               "access_offset": access_off, "access_path": access_path}, f)
 PYEOF
 
 # Negotiate gzip: only compress if the server advertises accepts_gzip in its
