@@ -369,6 +369,11 @@ pub async fn process_webhook_trusted(store: &dyn Database, source: &str, body: &
         "graylog" => parse_graylog(store, &json).await,
         "changedetection" => parse_changedetection(store, &json).await,
         "strelka" => parse_strelka(store, &mut batch, &json).await,
+        // Raw /var/log/audit/audit.log lines, tailed by the Linux agent's
+        // fluent-bit. Parsed into per-field JSON so the SigmaHQ linux/auditd
+        // rules (type / a0…aN / name / exe / key) resolve instead of dying
+        // against an opaque syslog message.
+        "auditd" => crate::connectors::auditd::parse_auditd(&mut batch, &json).await,
         _ => {
             // Unknown source — try generic parser
             parse_generic(store, source, &json).await

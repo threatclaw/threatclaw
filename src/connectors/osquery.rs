@@ -1307,6 +1307,20 @@ pub async fn process_osquery_webhook(
         result.alerts_created += alerts;
     }
 
+    // Raw /var/log/audit/audit.log lines shipped by the Linux agent in the same
+    // POST (one agent, one token, one timer). Parsed into per-field JSON under
+    // tag `linux.auditd` so the SigmaHQ linux/auditd rules resolve — as opaque
+    // syslog text every one of them is silently dead.
+    if let Some(lines) = body["auditd"].as_array() {
+        let now = chrono::Utc::now().to_rfc3339();
+        for line in lines.iter().filter_map(|v| v.as_str()) {
+            if let Some(data) = crate::connectors::auditd::parse_auditd_line(line) {
+                sink.emit("linux.auditd", hostname, &data, &now);
+                result.logs_processed += 1;
+            }
+        }
+    }
+
     if result.alerts_created > 0 || result.software_items > 0 {
         tracing::info!(
             "OSQUERY: {} — {} software, {} connections, {} alerts",

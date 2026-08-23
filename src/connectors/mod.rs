@@ -65,6 +65,7 @@ mod tests {
 pub mod active_directory;
 pub mod agent_identity;
 pub mod agent_manifest;
+pub mod auditd;
 pub mod authentik;
 pub mod cloudflare;
 pub mod crowdsec;

@@ -531,6 +531,33 @@ inventory = {
     "interface_details": load("ifaces.json", []),
     "docker_containers": load("docker.json", []),
 }
+# auditd delta: ship the new bytes of the audit log so the server can parse each
+# record into fields — the SigmaHQ linux/auditd rules match `type`/`a0`…/`name`/
+# `exe`/`key`, which an opaque syslog line can never resolve. The offset lives in
+# the same state file, so it is promoted only after a 200: a failed sync re-ships
+# the exact same slice instead of losing it. Capped so a long outage cannot turn
+# into a multi-megabyte POST, and cut on a line boundary so no record is split.
+AUDIT_LOG = "/var/log/audit/audit.log"
+AUDIT_MAX_BYTES = 2_000_000
+audit_off = int(state.get("auditd_offset", 0) or 0)
+try:
+    audit_size = os.path.getsize(AUDIT_LOG)
+    if audit_size < audit_off:      # log rotated — restart from the top
+        audit_off = 0
+    if audit_size > audit_off:
+        with open(AUDIT_LOG, "rb") as f:
+            f.seek(audit_off)
+            chunk = f.read(AUDIT_MAX_BYTES)
+        cut = chunk.rfind(b"\n") + 1
+        if cut > 0:
+            lines = chunk[:cut].decode("utf-8", "replace").splitlines()
+            records = [l for l in lines if "msg=audit(" in l]
+            if records:
+                payload["auditd"] = records
+            audit_off += cut
+except OSError:
+    pass  # auditd absent or the log unreadable — nothing to ship, not an error
+
 new_hashes = dict(hashes)
 for name, val in inventory.items():
     canon = json.dumps(val, sort_keys=True, separators=(",", ":"))
@@ -544,7 +571,7 @@ with open(os.path.join(workdir, "payload.json"), "w") as f:
 # Candidate state — promoted to STATE by the sync script only after a 200, so a
 # failed sync re-sends the exact same delta next cycle (nothing lost).
 with open(os.path.join(workdir, "state_new.json"), "w") as f:
-    json.dump({"hashes": new_hashes, "last_full": last_full}, f)
+    json.dump({"hashes": new_hashes, "last_full": last_full, "auditd_offset": audit_off}, f)
 PYEOF
 
 # Negotiate gzip: only compress if the server advertises accepts_gzip in its
