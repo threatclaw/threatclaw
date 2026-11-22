@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/)
 Versioning: [Semantic Versioning](https://semver.org/) starting with `v1.0.0-beta`.
 Earlier `v0.x` entries below cover pre-public internal development and are kept for transparency.
 
+## [Unreleased]
+
+### Fixed
+- Configuration › Backup: the "Light export" / "Full export" choice now shows as selected in dark mode. The chosen mode was already applied to the export; only the display was wrong.
+
 ## [1.0.61-beta] — 2026-07-07
 
 Security hardening across agents, installers, ingestion, detection updates and the dashboard. No action is required beyond the usual update; re-enrolling agents is recommended to pick up the new machine-bound identities.
