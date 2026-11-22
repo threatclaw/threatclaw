@@ -41,6 +41,17 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-microsoft-sentinel", "microsoft_sentinel"),
 ];
 
+/// Connector types listed above whose auto-sync is not wired yet.
+const AUTO_SYNC_NOT_IMPLEMENTED: &[&str] = &["unifi", "ad"];
+
+/// True when the scheduler can sync this skill on its own. The dashboard
+/// offers the auto-sync toggle and interval only for these skills.
+pub fn supports_auto_sync(skill_id: &str) -> bool {
+    CONNECTORS
+        .iter()
+        .any(|(id, kind)| *id == skill_id && !AUTO_SYNC_NOT_IMPLEMENTED.contains(kind))
+}
+
 /// Spawn the connector sync scheduler.
 pub fn spawn_sync_scheduler(store: Arc<dyn Database>) {
     tokio::spawn(async move {
@@ -76,7 +87,9 @@ pub fn spawn_sync_scheduler(store: Arc<dyn Database>) {
                 let interval_min: u64 = config_map
                     .get("sync_interval")
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(60);
+                    .unwrap_or(60)
+                    // 0 would make the connector due on every 60s tick
+                    .max(1);
 
                 // Check if enough time has passed since last sync
                 let now = std::time::Instant::now();
@@ -1025,5 +1038,21 @@ async fn run_connector_sync(
         }
         "unifi" | "ad" => Err(format!("{} auto-sync not yet implemented", connector_type)),
         _ => Err(format!("Unknown connector: {}", connector_type)),
+    }
+}
+
+#[cfg(test)]
+mod auto_sync_tests {
+    use super::*;
+
+    #[test]
+    fn auto_sync_follows_the_scheduler_list() {
+        assert!(supports_auto_sync("skill-pihole"));
+        assert!(supports_auto_sync("skill-adguard"));
+        // listed but not implemented
+        assert!(!supports_auto_sync("skill-unifi"));
+        assert!(!supports_auto_sync("skill-active-directory"));
+        // webhook-fed, never scheduled
+        assert!(!supports_auto_sync("skill-zeek"));
     }
 }
