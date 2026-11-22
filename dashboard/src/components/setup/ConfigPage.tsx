@@ -2777,15 +2777,19 @@ function BackupTab() {
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
+          {/* No `name` here: ChromeInsetCard (NeuCard) renders its children twice
+              (dark + light copies), so a shared name puts 4 radios in one native
+              group and the hidden copy steals the checked state. React drives
+              `checked`, the native group is not needed. */}
           <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
-            <input type="radio" name="exportMode" checked={exportMode === "light"} onChange={() => setExportMode("light")} />
+            <input type="radio" checked={exportMode === "light"} onChange={() => setExportMode("light")} />
             <div>
               <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>{tr("cfg_exportLight", locale)}</div>
               <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{tr("cfg_exportLightDesc", locale)}</div>
             </div>
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "12px" }}>
-            <input type="radio" name="exportMode" checked={exportMode === "full"} onChange={() => setExportMode("full")} />
+            <input type="radio" checked={exportMode === "full"} onChange={() => setExportMode("full")} />
             <div>
               <div style={{ fontWeight: 700, color: "var(--tc-text)" }}>{tr("cfg_exportFull", locale)}</div>
               <div style={{ fontSize: "10px", color: "var(--tc-text-muted)" }}>{tr("cfg_exportFullDesc", locale)}</div>
