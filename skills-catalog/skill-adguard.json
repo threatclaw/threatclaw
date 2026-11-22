@@ -1,0 +1,44 @@
+{
+  "id": "skill-adguard",
+  "name": "AdGuard Home DNS",
+  "version": "1.0.0",
+  "description": "Analyse les requêtes DNS depuis AdGuard Home — détecte les domaines bloqués, les domaines malveillants (SafeBrowsing) et les clients DNS suspects.",
+  "author": "ThreatClaw",
+  "trust": "official",
+  "type": "connector",
+  "category": "network",
+  "help": "AdGuard Home est un serveur DNS réseau qui filtre les publicités, trackers et domaines malveillants. En l'intégrant à ThreatClaw, vous obtenez une visibilité sur :\n\n• Les domaines bloqués (listes de blocage, services bloqués, contrôle parental)\n• Les domaines malveillants détectés par la protection SafeBrowsing (malware, phishing)\n• Les clients qui génèrent beaucoup de requêtes bloquées (potentiel malware)\n\nPrérequis :\n• AdGuard Home avec l'interface web activée (port 3000 ou 80 selon l'installation)\n• Le nom d'utilisateur et le mot de passe admin AdGuard Home\n• AdGuard Home accessible depuis le serveur ThreatClaw\n• Le journal des requêtes activé (Paramètres > Paramètres généraux > Journal des requêtes)",
+  "execution": {
+    "mode": "connector",
+    "sync_interval_minutes": 5
+  },
+  "config": {
+    "adguard_url": {
+      "type": "string",
+      "description": "URL d'AdGuard Home",
+      "placeholder": "http://192.168.1.1:3000",
+      "hint": "L'adresse de l'interface web d'AdGuard Home, avec le port si besoin. Utilisez http:// sauf si vous avez configuré HTTPS.",
+      "required": true
+    },
+    "adguard_username": {
+      "type": "string",
+      "description": "Nom d'utilisateur admin AdGuard Home",
+      "hint": "Le compte créé lors de l'assistant d'installation d'AdGuard Home.",
+      "required": true
+    },
+    "adguard_password": {
+      "type": "password",
+      "description": "Mot de passe admin AdGuard Home",
+      "hint": "Le mot de passe du compte admin AdGuard Home.",
+      "required": true
+    }
+  },
+  "outputs": {
+    "dns_queries": "graph",
+    "findings": "db"
+  },
+  "default_active": false,
+  "requires_config": true,
+  "api_key_required": false,
+  "icon": "globe"
+}

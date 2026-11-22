@@ -134,7 +134,7 @@ const NOT_FUNCTIONAL: Set<string> = new Set([
 const BETA_SKILLS: Set<string> = new Set([
   "skill-active-directory", "skill-pfsense", "skill-proxmox", "skill-fortinet",
   "skill-wazuh", "skill-wazuh-connector", "skill-glpi", "skill-defectdojo",
-  "skill-pihole", "skill-unifi", "skill-zeek", "skill-suricata",
+  "skill-pihole", "skill-adguard", "skill-unifi", "skill-zeek", "skill-suricata",
   "skill-crowdsec-connector", "skill-cloudflare", "skill-uptimerobot",
   "skill-semgrep", "skill-checkov", "skill-trufflehog",
   "skill-syft", "skill-docker-bench", "skill-lynis",

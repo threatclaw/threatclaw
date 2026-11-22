@@ -16,6 +16,7 @@ use tokio::time::{Duration, interval};
 const CONNECTORS: &[(&str, &str)] = &[
     ("skill-wazuh-connector", "wazuh"),
     ("skill-pihole", "pihole"),
+    ("skill-adguard", "adguard"),
     ("skill-glpi", "glpi"),
     ("skill-crowdsec-connector", "crowdsec"),
     ("skill-unifi", "unifi"),
@@ -278,6 +279,25 @@ async fn run_connector_sync(
 
             let pc = crate::connectors::pihole::PiholeConfig { url, password };
             let r = crate::connectors::pihole::sync_pihole(store, &pc).await;
+            Ok(format!(
+                "{} queries, {} findings",
+                r.queries_analyzed, r.findings_created
+            ))
+        }
+        "adguard" => {
+            let url = config.get("adguard_url").cloned().unwrap_or_default();
+            let username = config.get("adguard_username").cloned().unwrap_or_default();
+            let password = config.get("adguard_password").cloned().unwrap_or_default();
+            if url.is_empty() {
+                return Err("adguard_url not configured".into());
+            }
+
+            let ac = crate::connectors::adguard::AdguardConfig {
+                url,
+                username,
+                password,
+            };
+            let r = crate::connectors::adguard::sync_adguard(store, &ac).await;
             Ok(format!(
                 "{} queries, {} findings",
                 r.queries_analyzed, r.findings_created

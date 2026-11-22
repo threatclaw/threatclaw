@@ -166,6 +166,27 @@ const SOURCE_DEFS: Record<string, SourceDef> = {
       },
     ],
   },
+  adguard: {
+    id: "adguard",
+    icon: <Globe size={20} />,
+    color: "#68bc71",
+    description: {
+      fr: "Connectez AdGuard Home pour la visibilite DNS. Remonte les domaines bloques, les domaines malveillants (SafeBrowsing) et les clients DNS suspects.",
+      en: "Connect AdGuard Home for DNS visibility. Surfaces blocked domains, malicious domains (SafeBrowsing) and suspicious DNS clients.",
+    },
+    guides: [
+      {
+        title: "Configuration", titleEn: "Setup",
+        steps: [
+          { fr: "Dashboard > Skills > AdGuard Home > Configurer", en: "Dashboard > Skills > AdGuard Home > Configure" },
+          { fr: "URL: http://adguard-ip:3000 (port de l'interface web)", en: "URL: http://adguard-ip:3000 (web UI port)" },
+          { fr: "Identifiants: votre compte admin AdGuard Home", en: "Credentials: your AdGuard Home admin account" },
+          { fr: "Le journal des requetes doit etre active dans AdGuard Home", en: "The query log must be enabled in AdGuard Home" },
+          { fr: "ThreatClaw interroge l'API AdGuard Home automatiquement", en: "ThreatClaw queries the AdGuard Home API automatically" },
+        ],
+      },
+    ],
+  },
   suricata: {
     id: "suricata",
     icon: <Bug size={20} />,

@@ -1545,6 +1545,10 @@ pub async fn start_server(
             post(super::handlers::threatclaw_api::connector_pihole_sync_handler),
         )
         .route(
+            "/api/tc/connectors/adguard/sync",
+            post(super::handlers::threatclaw_api::connector_adguard_sync_handler),
+        )
+        .route(
             "/api/tc/connectors/unifi/sync",
             post(super::handlers::threatclaw_api::connector_unifi_sync_handler),
         )
