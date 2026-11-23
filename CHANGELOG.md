@@ -8,8 +8,19 @@ Earlier `v0.x` entries below cover pre-public internal development and are kept 
 
 ## [Unreleased]
 
+### Added
+- AdGuard Home skill: blocked DNS queries and domains flagged as malware/phishing by AdGuard's SafeBrowsing are reported per client.
+- Skills › connector settings: new "Synchronisation" section to turn automatic sync on or off and set its interval in minutes.
+- AdGuard Home and Pi-hole: new "Regroupement des alertes" setting — one finding per client per day (default) or per week.
+
+### Changed
+- AdGuard Home and Pi-hole: blocked DNS queries are now reported at INFO level, in a single finding per client and period that is updated at each sync instead of a new finding every time.
+- AdGuard Home and Pi-hole: each sync now reads every query since the previous one, so busy networks are no longer limited to the last 200 queries.
+
 ### Fixed
 - Configuration › Backup: the "Light export" / "Full export" choice now shows as selected in dark mode. The chosen mode was already applied to the export; only the display was wrong.
+- Connectors configured from the Skills page now sync automatically. Previously the automatic sync was never enabled (except for Velociraptor); re-save an existing connector's settings to turn it on.
+- Pi-hole v6: blocked queries are now detected. The connector did not understand the Pi-hole v6 response format and reported none.
 
 ## [1.0.61-beta] — 2026-07-07
 
