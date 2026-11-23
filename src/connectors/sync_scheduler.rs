@@ -290,7 +290,16 @@ async fn run_connector_sync(
                 return Err("pihole_url not configured".into());
             }
 
-            let pc = crate::connectors::pihole::PiholeConfig { url, password };
+            let pc = crate::connectors::pihole::PiholeConfig {
+                url,
+                password,
+                alert_window: crate::connectors::dns_findings::AlertWindow::parse(
+                    config
+                        .get("pihole_alert_window")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                ),
+            };
             let r = crate::connectors::pihole::sync_pihole(store, &pc).await;
             Ok(format!(
                 "{} queries, {} findings",
@@ -309,7 +318,7 @@ async fn run_connector_sync(
                 url,
                 username,
                 password,
-                alert_window: crate::connectors::adguard::AlertWindow::parse(
+                alert_window: crate::connectors::dns_findings::AlertWindow::parse(
                     config
                         .get("adguard_alert_window")
                         .map(String::as_str)

@@ -73,6 +73,7 @@ pub mod crowdsec;
 pub mod defectdojo;
 pub mod dfir_iris;
 pub mod dhcp_parser;
+pub mod dns_findings;
 pub mod docker_executor;
 pub mod elastic_siem;
 pub mod fortinet;

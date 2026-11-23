@@ -8766,7 +8766,13 @@ pub async fn connector_pihole_sync_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let url = get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_url").await;
     let password = get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_password").await;
-    let config = crate::connectors::pihole::PiholeConfig { url, password };
+    let alert_window =
+        get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_alert_window").await;
+    let config = crate::connectors::pihole::PiholeConfig {
+        url,
+        password,
+        alert_window: crate::connectors::dns_findings::AlertWindow::parse(&alert_window),
+    };
     let result = crate::connectors::pihole::sync_pihole(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
@@ -8786,7 +8792,7 @@ pub async fn connector_adguard_sync_handler(
         url,
         username,
         password,
-        alert_window: crate::connectors::adguard::AlertWindow::parse(&alert_window),
+        alert_window: crate::connectors::dns_findings::AlertWindow::parse(&alert_window),
     };
     let result = crate::connectors::adguard::sync_adguard(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))

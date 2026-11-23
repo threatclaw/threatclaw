@@ -7,58 +7,22 @@
 //! (malware / phishing) are reported separately from plain blocklist hits.
 //!
 //! Findings are grouped per client and per period (day or week, see
-//! `adguard_alert_window`): the title carries the period, so `insert_finding`
-//! updates the same finding all period long instead of creating one per sync.
-//! A cursor (`adguard_cursor`, newest query time seen) keeps the running
+//! `adguard_alert_window` and `dns_findings`). A cursor (`adguard_cursor`, newest query time seen) keeps the running
 //! totals from counting the same query twice across syncs, and tells how far
 //! back to page (`older_than`) so busy networks are not truncated.
 
+use crate::connectors::dns_findings::{self, AlertWindow, DnsSource};
 use crate::db::Database;
-use crate::db::threatclaw_store::{NewFinding, ThreatClawStore};
-use chrono::{DateTime, Datelike, FixedOffset, Local};
+use crate::db::threatclaw_store::ThreatClawStore;
+use chrono::{DateTime, FixedOffset, Local};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 const SKILL_ID: &str = "skill-adguard";
 const CURSOR_KEY: &str = "adguard_cursor";
-/// Blocked queries per client and period before a finding is raised.
-const BLOCKED_THRESHOLD: u64 = 20;
 /// Query log page size, and how many pages one sync may read back.
 const PAGE_SIZE: usize = 500;
 const MAX_PAGES: usize = 10;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum AlertWindow {
-    #[default]
-    Daily,
-    Weekly,
-}
-
-impl AlertWindow {
-    /// "weekly" → Weekly, anything else (empty, typo) → Daily.
-    pub fn parse(s: &str) -> Self {
-        if s.trim().eq_ignore_ascii_case("weekly") {
-            AlertWindow::Weekly
-        } else {
-            AlertWindow::Daily
-        }
-    }
-
-    /// Period label put in finding titles: "2026-11-23" or "2026-W48".
-    fn label<Tz: chrono::TimeZone>(self, now: &DateTime<Tz>) -> String
-    where
-        Tz::Offset: std::fmt::Display,
-    {
-        match self {
-            AlertWindow::Daily => now.format("%Y-%m-%d").to_string(),
-            AlertWindow::Weekly => {
-                let w = now.iso_week();
-                format!("{}-W{:02}", w.year(), w.week())
-            }
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdguardConfig {
@@ -146,11 +110,16 @@ fn tally(entries: &[serde_json::Value], cursor: Option<DateTime<FixedOffset>>) -
         }
         if is_blocked(reason) {
             t.blocked_domains.insert(domain.to_string());
-            *t.blocked_per_client.entry(client_ip.to_string()).or_insert(0) += 1;
+            *t.blocked_per_client
+                .entry(client_ip.to_string())
+                .or_insert(0) += 1;
         }
         if is_malicious(reason) {
             t.malicious_domains.insert(domain.to_string());
-            let domains = t.malicious_per_client.entry(client_ip.to_string()).or_default();
+            let domains = t
+                .malicious_per_client
+                .entry(client_ip.to_string())
+                .or_default();
             if !domains.iter().any(|d| d == domain) {
                 domains.push(domain.to_string());
             }
@@ -197,14 +166,6 @@ async fn fetch_page(
         .map_err(|e| format!("AdGuard parse: {}", e))
 }
 
-fn blocked_title(ip: &str, period: &str) -> String {
-    format!("AdGuard: blocked DNS queries from {} ({})", ip, period)
-}
-
-fn malicious_title(ip: &str, period: &str) -> String {
-    format!("AdGuard: malicious domains queried by {} ({})", ip, period)
-}
-
 pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> AdguardSyncResult {
     let mut result = AdguardSyncResult {
         queries_analyzed: 0,
@@ -229,13 +190,7 @@ pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> Adgua
     };
     let base = config.url.trim_end_matches('/');
 
-    let cursor = store
-        .get_skill_config(SKILL_ID)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .find(|c| c.key == CURSOR_KEY)
-        .and_then(|c| DateTime::parse_from_rfc3339(&c.value).ok());
+    let cursor = dns_findings::read_cursor(store, SKILL_ID, CURSOR_KEY).await;
 
     // Page back through the query log (newest first) until the cursor is
     // reached. Without a cursor (first run) one page is enough: no backfill.
@@ -284,86 +239,18 @@ pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> Adgua
         );
     }
 
-    // Running totals of this period's findings, keyed by title
-    let period = config.alert_window.label(&Local::now());
-    let previous: HashMap<String, serde_json::Value> = store
-        .list_findings(None, None, Some(SKILL_ID), 500, 0)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|f| f.title.ends_with(&format!("({})", period)))
-        .map(|f| (f.title, f.metadata))
-        .collect();
-
-    // Malware / phishing lookups → HIGH, one finding per client and period
-    for (ip, domains) in &t.malicious_per_client {
-        let title = malicious_title(ip, &period);
-        let mut all: Vec<String> = previous
-            .get(&title)
-            .and_then(|m| serde_json::from_value(m["domains"].clone()).ok())
-            .unwrap_or_default();
-        for d in domains {
-            if !all.contains(d) {
-                all.push(d.clone());
-            }
-        }
-        if store
-            .insert_finding(&NewFinding {
-                skill_id: SKILL_ID.into(),
-                title,
-                description: Some(format!(
-                    "Client {} resolved domains flagged by AdGuard SafeBrowsing (malware/phishing) during {}. The full list is in the finding metadata.",
-                    ip, period
-                )),
-                severity: "HIGH".into(),
-                category: Some("dns-malicious".into()),
-                asset: Some(ip.clone()),
-                source: Some("AdGuard Home".into()),
-                metadata: Some(serde_json::json!({
-                    "domains": all, "client": ip, "period": period,
-                })),
-            })
-            .await
-            .is_ok()
-        {
-            result.findings_created += 1;
-        }
-    }
-
-    // Blocked queries → INFO, one finding per client and period, raised once
-    // the period total reaches the threshold and then kept up to date
-    for (ip, new_count) in &t.blocked_per_client {
-        let title = blocked_title(ip, &period);
-        let total = previous
-            .get(&title)
-            .and_then(|m| m["blocked_count"].as_u64())
-            .unwrap_or(0)
-            + new_count;
-        if total < BLOCKED_THRESHOLD {
-            continue;
-        }
-        if store
-            .insert_finding(&NewFinding {
-                skill_id: SKILL_ID.into(),
-                title,
-                description: Some(format!(
-                    "Client {} had DNS queries blocked by AdGuard during {}. The running total is in the finding metadata (blocked_count).",
-                    ip, period
-                )),
-                severity: "INFO".into(),
-                category: Some("dns-blocked".into()),
-                asset: Some(ip.clone()),
-                source: Some("AdGuard Home".into()),
-                metadata: Some(serde_json::json!({
-                    "blocked_count": total, "client": ip, "period": period,
-                })),
-            })
-            .await
-            .is_ok()
-        {
-            result.findings_created += 1;
-        }
-    }
+    result.findings_created = dns_findings::upsert_period_findings(
+        store,
+        &DnsSource {
+            skill_id: SKILL_ID,
+            short_name: "AdGuard",
+            source: "AdGuard Home",
+        },
+        config.alert_window,
+        &t.blocked_per_client,
+        &t.malicious_per_client,
+    )
+    .await;
 
     if let Some(newest) = t.newest {
         if let Err(e) = store
@@ -382,7 +269,7 @@ pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> Adgua
         result.malicious_domains,
         result.clients_seen,
         result.findings_created,
-        period
+        config.alert_window.label(&Local::now())
     );
 
     result
@@ -417,9 +304,24 @@ mod tests {
     #[test]
     fn cursor_skips_queries_already_counted() {
         let entries = vec![
-            q("2026-11-23T10:00:03Z", "10.0.0.1", "a.com", "FilteredBlackList"),
-            q("2026-11-23T10:00:02Z", "10.0.0.1", "b.com", "FilteredSafeBrowsing"),
-            q("2026-11-23T10:00:01Z", "10.0.0.1", "c.com", "FilteredBlackList"),
+            q(
+                "2026-11-23T10:00:03Z",
+                "10.0.0.1",
+                "a.com",
+                "FilteredBlackList",
+            ),
+            q(
+                "2026-11-23T10:00:02Z",
+                "10.0.0.1",
+                "b.com",
+                "FilteredSafeBrowsing",
+            ),
+            q(
+                "2026-11-23T10:00:01Z",
+                "10.0.0.1",
+                "c.com",
+                "FilteredBlackList",
+            ),
         ];
         let first = tally(&entries, None);
         assert_eq!(first.new_queries, 3);
@@ -429,29 +331,36 @@ mod tests {
         let next = tally(&entries, cursor);
         assert_eq!(next.new_queries, 2);
         assert_eq!(next.blocked_per_client["10.0.0.1"], 2);
-        assert_eq!(next.malicious_per_client["10.0.0.1"], vec!["b.com".to_string()]);
-        assert_eq!(next.newest, DateTime::parse_from_rfc3339("2026-11-23T10:00:03Z").ok());
+        assert_eq!(
+            next.malicious_per_client["10.0.0.1"],
+            vec!["b.com".to_string()]
+        );
+        assert_eq!(
+            next.newest,
+            DateTime::parse_from_rfc3339("2026-11-23T10:00:03Z").ok()
+        );
     }
 
     #[test]
     fn paging_stops_once_the_cursor_is_reached() {
         let page = vec![
-            q("2026-11-23T10:00:03Z", "10.0.0.1", "a.com", "FilteredBlackList"),
-            q("2026-11-23T10:00:02Z", "10.0.0.1", "b.com", "NotFilteredNotFound"),
+            q(
+                "2026-11-23T10:00:03Z",
+                "10.0.0.1",
+                "a.com",
+                "FilteredBlackList",
+            ),
+            q(
+                "2026-11-23T10:00:02Z",
+                "10.0.0.1",
+                "b.com",
+                "NotFilteredNotFound",
+            ),
         ];
         let before = DateTime::parse_from_rfc3339("2026-11-23T10:00:01Z").ok();
         let inside = DateTime::parse_from_rfc3339("2026-11-23T10:00:02Z").ok();
         assert!(!reaches_cursor(&page, before));
         assert!(reaches_cursor(&page, inside));
         assert!(!reaches_cursor(&page, None));
-    }
-
-    #[test]
-    fn period_labels() {
-        let d = DateTime::parse_from_rfc3339("2026-11-23T10:00:00Z").unwrap();
-        assert_eq!(AlertWindow::Daily.label(&d), "2026-11-23");
-        assert_eq!(AlertWindow::Weekly.label(&d), "2026-W48");
-        assert_eq!(AlertWindow::parse("weekly"), AlertWindow::Weekly);
-        assert_eq!(AlertWindow::parse(""), AlertWindow::Daily);
     }
 }

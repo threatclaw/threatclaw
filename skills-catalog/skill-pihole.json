@@ -8,7 +8,7 @@
   "trust": "official",
   "type": "connector",
   "category": "network",
-  "help": "Pi-hole est un bloqueur DNS réseau qui filtre les publicités, trackers et domaines malveillants. En l'intégrant à ThreatClaw, vous obtenez une visibilité sur :\n\n• Les domaines bloqués par catégorie (malware, ads, tracking)\n• Les clients qui génèrent beaucoup de requêtes bloquées (potentiel malware)\n• Les tendances DNS de votre réseau\n\nPrérequis :\n• Pi-hole v6 avec l'API REST activée (port 80 par défaut)\n• Le mot de passe admin Pi-hole\n• Pi-hole accessible depuis le serveur ThreatClaw",
+  "help": "Pi-hole est un bloqueur DNS réseau qui filtre les publicités, trackers et domaines malveillants. En l'intégrant à ThreatClaw, vous obtenez une visibilité sur :\n\n• Les domaines bloqués par catégorie (malware, ads, tracking)\n• Les clients qui génèrent beaucoup de requêtes bloquées (niveau info)\n\nLes alertes sont regroupées par client et par jour ou par semaine (paramètre « Regroupement des alertes »).\n• Les tendances DNS de votre réseau\n\nPrérequis :\n• Pi-hole v6 avec l'API REST activée (port 80 par défaut)\n• Le mot de passe admin Pi-hole\n• Pi-hole accessible depuis le serveur ThreatClaw",
   "help_en": "Pi-hole is a network DNS blocker that filters ads, trackers and malicious domains. By integrating it with ThreatClaw, you gain visibility into:\n\n• Blocked domains by category (malware, ads, tracking)\n• Clients generating many blocked requests (potential malware)\n• Your network's DNS trends\n\nPrerequisites:\n• Pi-hole v6 with the REST API enabled (port 80 by default)\n• The Pi-hole admin password\n• Pi-hole reachable from the ThreatClaw server",
   "execution": {
     "mode": "connector",
@@ -31,6 +31,17 @@
       "hint": "Le mot de passe configuré dans Pi-hole. Pour Pi-hole v6, il est généré au premier lancement (visible dans les logs Docker).",
       "hint_en": "The password configured in Pi-hole. For Pi-hole v6, it is generated on first launch (visible in the Docker logs).",
       "required": true
+    },
+    "pihole_alert_window": {
+      "type": "string",
+      "description": "Regroupement des alertes",
+      "options": [
+        "daily",
+        "weekly"
+      ],
+      "default": "daily",
+      "hint": "daily = une alerte par client et par jour, weekly = une alerte par client et par semaine. L'alerte est mise à jour à chaque synchronisation au lieu d'en créer une nouvelle.",
+      "required": false
     }
   },
   "outputs": {
