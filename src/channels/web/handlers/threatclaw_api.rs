@@ -8780,10 +8780,13 @@ pub async fn connector_adguard_sync_handler(
         get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_username").await;
     let password =
         get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_password").await;
+    let alert_window =
+        get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_alert_window").await;
     let config = crate::connectors::adguard::AdguardConfig {
         url,
         username,
         password,
+        alert_window: crate::connectors::adguard::AlertWindow::parse(&alert_window),
     };
     let result = crate::connectors::adguard::sync_adguard(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))

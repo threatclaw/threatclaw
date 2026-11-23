@@ -309,6 +309,12 @@ async fn run_connector_sync(
                 url,
                 username,
                 password,
+                alert_window: crate::connectors::adguard::AlertWindow::parse(
+                    config
+                        .get("adguard_alert_window")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                ),
             };
             let r = crate::connectors::adguard::sync_adguard(store, &ac).await;
             Ok(format!(
