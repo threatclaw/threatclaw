@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 //! AdGuard Home Connector — import DNS queries from the AdGuard Home API.
 //!
-//! Endpoint: GET http://{host}/control/querylog?limit=N
+//! Endpoint: GET http://{host}/control/querylog?limit=N[&older_than=T]
 //! Auth: HTTP Basic (AdGuard Home admin username/password).
 //! The `reason` field tells why a query was filtered; SafeBrowsing hits
 //! (malware / phishing) are reported separately from plain blocklist hits.
@@ -10,7 +10,8 @@
 //! `adguard_alert_window`): the title carries the period, so `insert_finding`
 //! updates the same finding all period long instead of creating one per sync.
 //! A cursor (`adguard_cursor`, newest query time seen) keeps the running
-//! totals from counting the same query twice across syncs.
+//! totals from counting the same query twice across syncs, and tells how far
+//! back to page (`older_than`) so busy networks are not truncated.
 
 use crate::db::Database;
 use crate::db::threatclaw_store::{NewFinding, ThreatClawStore};
@@ -22,6 +23,9 @@ const SKILL_ID: &str = "skill-adguard";
 const CURSOR_KEY: &str = "adguard_cursor";
 /// Blocked queries per client and period before a finding is raised.
 const BLOCKED_THRESHOLD: u64 = 20;
+/// Query log page size, and how many pages one sync may read back.
+const PAGE_SIZE: usize = 500;
+const MAX_PAGES: usize = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -155,6 +159,44 @@ fn tally(entries: &[serde_json::Value], cursor: Option<DateTime<FixedOffset>>) -
     t
 }
 
+/// True once a page holds a query at or before the cursor: everything older
+/// was already counted by a previous sync.
+fn reaches_cursor(entries: &[serde_json::Value], cursor: Option<DateTime<FixedOffset>>) -> bool {
+    let Some(c) = cursor else { return false };
+    entries.iter().any(|q| {
+        q["time"]
+            .as_str()
+            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            .is_some_and(|ts| ts <= c)
+    })
+}
+
+/// GET one query log page; `older_than` is the previous page's `oldest`.
+async fn fetch_page(
+    client: &reqwest::Client,
+    base: &str,
+    config: &AdguardConfig,
+    older_than: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    let mut req = client
+        .get(&format!("{}/control/querylog", base))
+        .query(&[("limit", PAGE_SIZE.to_string())])
+        .basic_auth(&config.username, Some(&config.password));
+    if let Some(o) = older_than {
+        req = req.query(&[("older_than", o)]);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("AdGuard querylog: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("AdGuard querylog HTTP {}", resp.status()));
+    }
+    resp.json()
+        .await
+        .map_err(|e| format!("AdGuard parse: {}", e))
+}
+
 fn blocked_title(ip: &str, period: &str) -> String {
     format!("AdGuard: blocked DNS queries from {} ({})", ip, period)
 }
@@ -187,35 +229,6 @@ pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> Adgua
     };
     let base = config.url.trim_end_matches('/');
 
-    // Get recent queries
-    let queries_resp = match client
-        .get(&format!("{}/control/querylog?limit=200", base))
-        .basic_auth(&config.username, Some(&config.password))
-        .send()
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            result.errors.push(format!("AdGuard querylog: {}", e));
-            return result;
-        }
-    };
-
-    if !queries_resp.status().is_success() {
-        result
-            .errors
-            .push(format!("AdGuard querylog HTTP {}", queries_resp.status()));
-        return result;
-    }
-
-    let body: serde_json::Value = match queries_resp.json().await {
-        Ok(b) => b,
-        Err(e) => {
-            result.errors.push(format!("AdGuard parse: {}", e));
-            return result;
-        }
-    };
-
     let cursor = store
         .get_skill_config(SKILL_ID)
         .await
@@ -224,7 +237,37 @@ pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> Adgua
         .find(|c| c.key == CURSOR_KEY)
         .and_then(|c| DateTime::parse_from_rfc3339(&c.value).ok());
 
-    let entries = body["data"].as_array().cloned().unwrap_or_default();
+    // Page back through the query log (newest first) until the cursor is
+    // reached. Without a cursor (first run) one page is enough: no backfill.
+    let mut entries: Vec<serde_json::Value> = vec![];
+    let mut older_than: Option<String> = None;
+    let mut saturated = false;
+    for page_no in 1..=MAX_PAGES {
+        let page = match fetch_page(&client, base, config, older_than.as_deref()).await {
+            Ok(p) => p,
+            Err(e) => {
+                result.errors.push(e);
+                // Nothing counted yet: keep the cursor where it is and retry next sync
+                if entries.is_empty() {
+                    return result;
+                }
+                break;
+            }
+        };
+        let data = page["data"].as_array().cloned().unwrap_or_default();
+        let len = data.len();
+        let done = cursor.is_none() || reaches_cursor(&data, cursor) || len < PAGE_SIZE;
+        entries.extend(data);
+        if done {
+            break;
+        }
+        match page["oldest"].as_str().filter(|o| !o.is_empty()) {
+            Some(o) => older_than = Some(o.to_string()),
+            None => break,
+        }
+        saturated = page_no == MAX_PAGES;
+    }
+
     let t = tally(&entries, cursor);
 
     result.queries_analyzed = t.analyzed;
@@ -233,10 +276,11 @@ pub async fn sync_adguard(store: &dyn Database, config: &AdguardConfig) -> Adgua
     result.blocked_domains = t.blocked_domains.len();
     result.malicious_domains = t.malicious_domains.len();
 
-    if cursor.is_some() && t.new_queries == entries.len() && !entries.is_empty() {
+    if saturated {
         tracing::warn!(
-            "ADGUARD: all {} fetched queries are new — some may have been missed since the last sync, shorten the sync interval",
-            entries.len()
+            "ADGUARD: read {} queries ({} pages) without reaching the previous sync — older ones were skipped, shorten the sync interval",
+            entries.len(),
+            MAX_PAGES
         );
     }
 
@@ -387,6 +431,19 @@ mod tests {
         assert_eq!(next.blocked_per_client["10.0.0.1"], 2);
         assert_eq!(next.malicious_per_client["10.0.0.1"], vec!["b.com".to_string()]);
         assert_eq!(next.newest, DateTime::parse_from_rfc3339("2026-11-23T10:00:03Z").ok());
+    }
+
+    #[test]
+    fn paging_stops_once_the_cursor_is_reached() {
+        let page = vec![
+            q("2026-11-23T10:00:03Z", "10.0.0.1", "a.com", "FilteredBlackList"),
+            q("2026-11-23T10:00:02Z", "10.0.0.1", "b.com", "NotFilteredNotFound"),
+        ];
+        let before = DateTime::parse_from_rfc3339("2026-11-23T10:00:01Z").ok();
+        let inside = DateTime::parse_from_rfc3339("2026-11-23T10:00:02Z").ok();
+        assert!(!reaches_cursor(&page, before));
+        assert!(reaches_cursor(&page, inside));
+        assert!(!reaches_cursor(&page, None));
     }
 
     #[test]
