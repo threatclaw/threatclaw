@@ -69,6 +69,7 @@ pub const TC_ROUTES: &[&str] = &[
     "/api/tc/config/{skill_id}",
     "/api/tc/config/test-channel",
     "/api/tc/connectors/ad/sync",
+    "/api/tc/connectors/adguard/sync",
     "/api/tc/connectors/authentik/sync",
     "/api/tc/connectors/cloudflare/sync",
     "/api/tc/connectors/crowdsec/sync",

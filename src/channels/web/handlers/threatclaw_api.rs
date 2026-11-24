@@ -8757,7 +8757,7 @@ pub async fn company_update_handler(
 }
 
 // ════════════════════════════════════════════════════════════════
-// v1.7 CONNECTORS — Network (Pi-hole, UniFi, DHCP, MAC OUI)
+// v1.7 CONNECTORS — Network (Pi-hole, AdGuard, UniFi, DHCP, MAC OUI)
 // ════════════════════════════════════════════════════════════════
 
 pub async fn connector_pihole_sync_handler(
@@ -8766,8 +8766,35 @@ pub async fn connector_pihole_sync_handler(
     let store = state.store.as_ref().ok_or_else(no_db)?;
     let url = get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_url").await;
     let password = get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_password").await;
-    let config = crate::connectors::pihole::PiholeConfig { url, password };
+    let alert_window =
+        get_skill_config_field(store.as_ref(), "skill-pihole", "pihole_alert_window").await;
+    let config = crate::connectors::pihole::PiholeConfig {
+        url,
+        password,
+        alert_window: crate::connectors::dns_findings::AlertWindow::parse(&alert_window),
+    };
     let result = crate::connectors::pihole::sync_pihole(store.as_ref(), &config).await;
+    Ok(Json(serde_json::json!(result)))
+}
+
+pub async fn connector_adguard_sync_handler(
+    State(state): State<Arc<GatewayState>>,
+) -> ApiResult<serde_json::Value> {
+    let store = state.store.as_ref().ok_or_else(no_db)?;
+    let url = get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_url").await;
+    let username =
+        get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_username").await;
+    let password =
+        get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_password").await;
+    let alert_window =
+        get_skill_config_field(store.as_ref(), "skill-adguard", "adguard_alert_window").await;
+    let config = crate::connectors::adguard::AdguardConfig {
+        url,
+        username,
+        password,
+        alert_window: crate::connectors::dns_findings::AlertWindow::parse(&alert_window),
+    };
+    let result = crate::connectors::adguard::sync_adguard(store.as_ref(), &config).await;
     Ok(Json(serde_json::json!(result)))
 }
 
@@ -10278,6 +10305,17 @@ pub async fn sources_status_handler(
             store.as_ref(),
             &["pihole"],
             &["DNS tunneling detection", "DGA ML scoring"],
+            "connector",
+        )
+        .await,
+        build_source_status(
+            "adguard",
+            "AdGuard Home DNS",
+            "adguard",
+            &tag_stats,
+            store.as_ref(),
+            &["adguard"],
+            &["Blocked DNS client scoring", "SafeBrowsing malware/phishing hits"],
             "connector",
         )
         .await,

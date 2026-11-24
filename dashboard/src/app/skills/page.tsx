@@ -48,6 +48,8 @@ interface SkillManifest {
   depends_on?: string;
   advanced?: boolean;
   hitl_actions?: HitlActionsManifest;
+  /** Set by the backend: the sync scheduler can run this connector on its own. */
+  auto_sync_supported?: boolean;
 }
 
 // ── Type definitions for UI ──
@@ -134,7 +136,7 @@ const NOT_FUNCTIONAL: Set<string> = new Set([
 const BETA_SKILLS: Set<string> = new Set([
   "skill-active-directory", "skill-pfsense", "skill-proxmox", "skill-fortinet",
   "skill-wazuh", "skill-wazuh-connector", "skill-glpi", "skill-defectdojo",
-  "skill-pihole", "skill-unifi", "skill-zeek", "skill-suricata",
+  "skill-pihole", "skill-adguard", "skill-unifi", "skill-zeek", "skill-suricata",
   "skill-crowdsec-connector", "skill-cloudflare", "skill-uptimerobot",
   "skill-semgrep", "skill-checkov", "skill-trufflehog",
   "skill-syft", "skill-docker-bench", "skill-lynis",
@@ -150,6 +152,18 @@ const BETA_SKILLS: Set<string> = new Set([
 // — every call site now reads `false`, so the premium-gated install
 // branch is dead code that the next cleanup pass can prune.
 const isPremium = (_s: SkillManifest) => false;
+
+// The scheduler reads sync_interval as whole minutes; anything else would
+// silently fall back to 60 min server-side. Clamp to 1..1440, or use the
+// manifest default when the field is empty or junk.
+function cleanConfigValue(skill: SkillManifest, key: string, value: string): string {
+  if (key !== "sync_interval") return value;
+  const n = Math.round(Number(value));
+  if (!value.trim() || !Number.isFinite(n) || n < 1) {
+    return String(skill.execution?.sync_interval_minutes || 60);
+  }
+  return String(Math.min(n, 1440));
+}
 
 function TrustBadge({ trust, locale }: { trust: string; locale: Locale }) {
   // "official" is the implicit default — surfacing a "TC" badge on every
@@ -311,6 +325,13 @@ export default function SkillsPage() {
         }
       }
     }
+    // Scheduled connectors: without auto_sync="true" the sync scheduler
+    // silently skips the skill, so a new config syncs on its own unless the
+    // operator turns it off. The interval defaults to the manifest's.
+    if (modalSkill.auto_sync_supported) {
+      seedDefaults.auto_sync = "true";
+      seedDefaults.sync_interval = String(modalSkill.execution?.sync_interval_minutes || 60);
+    }
     fetch(`/api/tc/config/${modalSkill.id}`, { signal: AbortSignal.timeout(3000) })
       .then((r) => r.json())
       .then((d: any) => {
@@ -363,7 +384,7 @@ export default function SkillsPage() {
     try {
       const vals: Record<string, string> = { enabled: "true" };
       const cfg = configValues[skill.id];
-      if (cfg) for (const [k, v] of Object.entries(cfg)) vals[k] = String(v);
+      if (cfg) for (const [k, v] of Object.entries(cfg)) vals[k] = cleanConfigValue(skill, k, String(v));
       await Promise.all(Object.entries(vals).map(async ([key, value]) => {
         const r = await fetch(`/api/tc/config/${skill.id}`, {
           method: "POST",
@@ -997,7 +1018,7 @@ function ConfigModal({
             <span style={{ fontFamily: "monospace", color: "var(--tc-blue)" }}>{skill.execution.docker_image}</span>
           )}
           {skill.execution?.sync_interval_minutes && (
-            <span><Clock size={9} style={{ display: "inline", verticalAlign: "middle" }} /> {skill.execution.sync_interval_minutes}min</span>
+            <span><Clock size={9} style={{ display: "inline", verticalAlign: "middle" }} /> {configValues[skill.id]?.sync_interval || skill.execution.sync_interval_minutes}min</span>
           )}
         </div>
 
@@ -1082,6 +1103,47 @@ function ConfigModal({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {skill.auto_sync_supported && (
+          <div style={{ marginBottom: "16px" }}>
+            <div style={{
+              fontSize: "10px", fontWeight: 700, color: "var(--tc-text-muted)",
+              textTransform: "uppercase", marginBottom: "8px",
+            }}>
+              {locale === "fr" ? "Synchronisation" : "Synchronization"}
+            </div>
+            <label style={{
+              fontSize: "11px", color: "var(--tc-text)",
+              display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px",
+            }}>
+              <input
+                type="checkbox"
+                className="tc-toggle"
+                checked={configValues[skill.id]?.auto_sync === "true"}
+                onChange={(e) => setConfig(skill.id, "auto_sync", e.target.checked ? "true" : "false")}
+              />
+              {locale === "fr" ? "Synchronisation automatique" : "Automatic sync"}
+            </label>
+            <label style={{ fontSize: "11px", color: "var(--tc-text-sec)", display: "block", marginBottom: "4px" }}>
+              {locale === "fr" ? "Intervalle de synchronisation (minutes)" : "Sync interval (minutes)"}
+            </label>
+            <input
+              type="number"
+              min={1}
+              max={1440}
+              step={1}
+              value={configValues[skill.id]?.sync_interval || ""}
+              disabled={configValues[skill.id]?.auto_sync !== "true"}
+              onChange={(e) => setConfig(skill.id, "sync_interval", e.target.value)}
+              placeholder={String(skill.execution?.sync_interval_minutes || 60)}
+              style={{
+                width: "100%", padding: "8px 10px", borderRadius: "var(--tc-radius-input)", fontSize: "12px",
+                background: "var(--tc-input)", border: "1px solid var(--tc-border)", color: "var(--tc-text)", outline: "none",
+                opacity: configValues[skill.id]?.auto_sync === "true" ? 1 : 0.5,
+              }}
+            />
           </div>
         )}
 
@@ -1172,7 +1234,7 @@ function ConfigModal({
                     fetch(`/api/tc/config/${skill.id}`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ key, value }),
+                      body: JSON.stringify({ key, value: cleanConfigValue(skill, key, value) }),
                     })
                   )).catch(() => {});
                 }

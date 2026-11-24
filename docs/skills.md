@@ -37,7 +37,7 @@ approves a remediation. Each connector is configured once under
 | SIEM / log sources | `elastic-siem`, `graylog`, `microsoft-sentinel`, `zeek`, `suricata`, `crowdsec` |
 | Identity & directory | `active-directory`, `authentik`, `keycloak`, `microsoft-graph` |
 | Inventory & CMDB | `glpi` |
-| DNS / filtering | `pihole` |
+| DNS / filtering | `pihole`, `adguard` |
 | Virtualisation & backup | `proxmox`, `proxmox-backup`, `veeam` |
 | Edge / CDN | `cloudflare` |
 | Incident response & ticketing | `dfir-iris`, `thehive`, `defectdojo` |

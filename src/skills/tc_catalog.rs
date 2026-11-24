@@ -89,6 +89,10 @@ pub struct TcSkillManifest {
     /// the "Avancés" toggle in the catalog. Backed by C2 manifests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub advanced: Option<bool>,
+    /// Set at load time, never read from the manifest: the sync scheduler
+    /// can run this connector periodically (see `sync_scheduler`).
+    #[serde(default, skip_deserializing)]
+    pub auto_sync_supported: bool,
 }
 
 fn default_tool() -> String {
@@ -139,7 +143,9 @@ pub fn load_tc_catalog() -> TcCatalog {
 
                 if let Ok(content) = std::fs::read_to_string(&skill_path) {
                     match serde_json::from_str::<TcSkillManifest>(&content) {
-                        Ok(manifest) => {
+                        Ok(mut manifest) => {
+                            manifest.auto_sync_supported =
+                                crate::connectors::sync_scheduler::supports_auto_sync(&manifest.id);
                             if !seen_ids.contains(&manifest.id) {
                                 seen_ids.insert(manifest.id.clone());
                                 skills.push(manifest);

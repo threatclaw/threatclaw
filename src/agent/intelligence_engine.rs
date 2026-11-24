@@ -1368,6 +1368,7 @@ async fn list_connected_skills(store: &dyn Database) -> Vec<String> {
     const KNOWN_SKILLS: &[&str] = &[
         "skill-wazuh-connector",
         "skill-pihole",
+        "skill-adguard",
         "skill-glpi",
         "skill-crowdsec-connector",
         "skill-unifi",

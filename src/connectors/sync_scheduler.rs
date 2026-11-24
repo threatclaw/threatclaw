@@ -16,6 +16,7 @@ use tokio::time::{Duration, interval};
 const CONNECTORS: &[(&str, &str)] = &[
     ("skill-wazuh-connector", "wazuh"),
     ("skill-pihole", "pihole"),
+    ("skill-adguard", "adguard"),
     ("skill-glpi", "glpi"),
     ("skill-crowdsec-connector", "crowdsec"),
     ("skill-unifi", "unifi"),
@@ -39,6 +40,17 @@ const CONNECTORS: &[(&str, &str)] = &[
     ("skill-microsoft-graph", "microsoft_graph"),
     ("skill-microsoft-sentinel", "microsoft_sentinel"),
 ];
+
+/// Connector types listed above whose auto-sync is not wired yet.
+const AUTO_SYNC_NOT_IMPLEMENTED: &[&str] = &["unifi", "ad"];
+
+/// True when the scheduler can sync this skill on its own. The dashboard
+/// offers the auto-sync toggle and interval only for these skills.
+pub fn supports_auto_sync(skill_id: &str) -> bool {
+    CONNECTORS
+        .iter()
+        .any(|(id, kind)| *id == skill_id && !AUTO_SYNC_NOT_IMPLEMENTED.contains(kind))
+}
 
 /// Spawn the connector sync scheduler.
 pub fn spawn_sync_scheduler(store: Arc<dyn Database>) {
@@ -75,7 +87,9 @@ pub fn spawn_sync_scheduler(store: Arc<dyn Database>) {
                 let interval_min: u64 = config_map
                     .get("sync_interval")
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(60);
+                    .unwrap_or(60)
+                    // 0 would make the connector due on every 60s tick
+                    .max(1);
 
                 // Check if enough time has passed since last sync
                 let now = std::time::Instant::now();
@@ -276,8 +290,42 @@ async fn run_connector_sync(
                 return Err("pihole_url not configured".into());
             }
 
-            let pc = crate::connectors::pihole::PiholeConfig { url, password };
+            let pc = crate::connectors::pihole::PiholeConfig {
+                url,
+                password,
+                alert_window: crate::connectors::dns_findings::AlertWindow::parse(
+                    config
+                        .get("pihole_alert_window")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                ),
+            };
             let r = crate::connectors::pihole::sync_pihole(store, &pc).await;
+            Ok(format!(
+                "{} queries, {} findings",
+                r.queries_analyzed, r.findings_created
+            ))
+        }
+        "adguard" => {
+            let url = config.get("adguard_url").cloned().unwrap_or_default();
+            let username = config.get("adguard_username").cloned().unwrap_or_default();
+            let password = config.get("adguard_password").cloned().unwrap_or_default();
+            if url.is_empty() {
+                return Err("adguard_url not configured".into());
+            }
+
+            let ac = crate::connectors::adguard::AdguardConfig {
+                url,
+                username,
+                password,
+                alert_window: crate::connectors::dns_findings::AlertWindow::parse(
+                    config
+                        .get("adguard_alert_window")
+                        .map(String::as_str)
+                        .unwrap_or(""),
+                ),
+            };
+            let r = crate::connectors::adguard::sync_adguard(store, &ac).await;
             Ok(format!(
                 "{} queries, {} findings",
                 r.queries_analyzed, r.findings_created
@@ -1005,5 +1053,21 @@ async fn run_connector_sync(
         }
         "unifi" | "ad" => Err(format!("{} auto-sync not yet implemented", connector_type)),
         _ => Err(format!("Unknown connector: {}", connector_type)),
+    }
+}
+
+#[cfg(test)]
+mod auto_sync_tests {
+    use super::*;
+
+    #[test]
+    fn auto_sync_follows_the_scheduler_list() {
+        assert!(supports_auto_sync("skill-pihole"));
+        assert!(supports_auto_sync("skill-adguard"));
+        // listed but not implemented
+        assert!(!supports_auto_sync("skill-unifi"));
+        assert!(!supports_auto_sync("skill-active-directory"));
+        // webhook-fed, never scheduled
+        assert!(!supports_auto_sync("skill-zeek"));
     }
 }
